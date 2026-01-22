@@ -55,6 +55,32 @@ const isCompressibleType = (contentType = '') => {
 };
 
 const isJsonContent = (contentType = '') => contentType.toLowerCase().includes('json');
+const isHtmlContent = (contentType = '') => {
+  const normalized = contentType.toLowerCase();
+  return normalized.includes('text/html') || normalized.includes('application/xhtml+xml');
+};
+
+const isLikelyHtmlBody = (text = '') => {
+  const snippet = text.trim().slice(0, 200).toLowerCase();
+  return snippet.startsWith('<!doctype html') || snippet.startsWith('<html') || snippet.includes('<html');
+};
+
+const HTML_VOID_TAGS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+]);
 
 const tryPrettyJson = (text) => {
   try {
@@ -63,6 +89,162 @@ const tryPrettyJson = (text) => {
   } catch (err) {
     return null;
   }
+};
+
+const prettyPrintHtml = (input = '') => {
+  if (!input) return '';
+  const normalized = input.replace(/\r\n/g, '\n').trim();
+  const collapsed = normalized.replace(/>\s+</g, '><');
+  const tokens = [];
+  let index = 0;
+  while (index < collapsed.length) {
+    const lt = collapsed.indexOf('<', index);
+    if (lt === -1) {
+      tokens.push(collapsed.slice(index));
+      break;
+    }
+    if (lt > index) {
+      tokens.push(collapsed.slice(index, lt));
+    }
+    const gt = collapsed.indexOf('>', lt);
+    if (gt === -1) {
+      tokens.push(collapsed.slice(lt));
+      break;
+    }
+    tokens.push(collapsed.slice(lt, gt + 1));
+    index = gt + 1;
+  }
+
+  let indent = 0;
+  const lines = [];
+  tokens.forEach((token) => {
+    const trimmed = token.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith('<!--') || /^<!DOCTYPE/i.test(trimmed)) {
+      lines.push(`${'  '.repeat(indent)}${trimmed}`);
+      return;
+    }
+    if (trimmed.startsWith('</')) {
+      indent = Math.max(indent - 1, 0);
+      lines.push(`${'  '.repeat(indent)}${trimmed}`);
+      return;
+    }
+    if (trimmed.startsWith('<')) {
+      const tagMatch = trimmed.match(/^<\s*([a-z0-9-]+)/i);
+      const tagName = tagMatch ? tagMatch[1].toLowerCase() : '';
+      const selfClosing = trimmed.endsWith('/>') || HTML_VOID_TAGS.has(tagName);
+      lines.push(`${'  '.repeat(indent)}${trimmed}`);
+      if (!selfClosing) {
+        indent += 1;
+      }
+      return;
+    }
+    lines.push(`${'  '.repeat(indent)}${trimmed}`);
+  });
+  return lines.join('\n');
+};
+
+const tokenizeHtmlAttributes = (attributeText = '') => {
+  const tokens = [];
+  const regex = /([^\s=\/]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?/g;
+  let match;
+  while ((match = regex.exec(attributeText)) !== null) {
+    const [, name, value] = match;
+    tokens.push({ type: 'attr', value: name });
+    if (value) {
+      const cleaned = value.replace(/^\s*=\s*/, '');
+      tokens.push({ type: 'punct', value: '=' });
+      tokens.push({ type: 'value', value: cleaned });
+    }
+    tokens.push({ type: 'text', value: ' ' });
+  }
+  if (tokens.length) {
+    tokens.pop();
+  }
+  return tokens;
+};
+
+const renderHtmlHighlighted = (text) => {
+  const parts = [];
+  const regex = /<!--[\s\S]*?-->|<[^>]+>/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('<!--')) {
+      parts.push(
+        <span key={`html-comment-${key++}`} className="html-token comment">
+          {token}
+        </span>
+      );
+    } else {
+      const tagMatch = token.match(/^<\s*(\/?)([^\s>\/]+)([^>]*)>/s);
+      if (!tagMatch) {
+        parts.push(
+          <span key={`html-tag-${key++}`} className="html-token tag">
+            {token}
+          </span>
+        );
+      } else {
+        const [, closingSlash, tagName, rawAttrs] = tagMatch;
+        const trailingSlash = token.endsWith('/>') ? '/' : '';
+        const attrText = rawAttrs?.replace(/\/\s*$/, '') ?? '';
+        const attrTokens = tokenizeHtmlAttributes(attrText);
+        parts.push(
+          <span key={`html-open-${key++}`} className="html-token punct">
+            {'<'}
+          </span>
+        );
+        if (closingSlash) {
+          parts.push(
+            <span key={`html-close-${key++}`} className="html-token punct">
+              {'/'}
+            </span>
+          );
+        }
+        parts.push(
+          <span key={`html-tagname-${key++}`} className="html-token tag">
+            {tagName}
+          </span>
+        );
+        if (attrTokens.length) {
+          parts.push(' ');
+          attrTokens.forEach((attrToken) => {
+            if (attrToken.type === 'text') {
+              parts.push(' ');
+              return;
+            }
+            parts.push(
+              <span key={`html-${attrToken.type}-${key++}`} className={`html-token ${attrToken.type}`}>
+                {attrToken.value}
+              </span>
+            );
+          });
+        }
+        if (trailingSlash) {
+          parts.push(
+            <span key={`html-self-${key++}`} className="html-token punct">
+              {'/'}
+            </span>
+          );
+        }
+        parts.push(
+          <span key={`html-end-${key++}`} className="html-token punct">
+            {'>'}
+          </span>
+        );
+      }
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
 };
 
 const tokenizeJson = (text) => {
@@ -300,31 +482,45 @@ function App() {
     if (!selected) return '';
     return getHeaderValue(selected.responseHeaders || {}, 'content-type');
   }, [selected]);
+  const isHtmlResponse = useMemo(() => {
+    if (!selected?.responseBody) return false;
+    return isHtmlContent(responseContentType) || isLikelyHtmlBody(selected.responseBody);
+  }, [selected, responseContentType]);
+  const isPrettyPrintableResponse = useMemo(() => {
+    if (!selected?.responseBody) return false;
+    return isJsonContent(responseContentType) || isHtmlResponse;
+  }, [selected, responseContentType, isHtmlResponse]);
   const responsePrettyBody = useMemo(() => {
     if (!selected?.responseBody) return '';
     if (!prettyPrintResponse) return selected.responseBody;
-    const pretty = tryPrettyJson(selected.responseBody);
-    return pretty ?? selected.responseBody;
-  }, [selected, prettyPrintResponse]);
+    if (isJsonContent(responseContentType)) {
+      const pretty = tryPrettyJson(selected.responseBody);
+      return pretty ?? selected.responseBody;
+    }
+    if (isHtmlResponse) {
+      return prettyPrintHtml(selected.responseBody);
+    }
+    return selected.responseBody;
+  }, [selected, prettyPrintResponse, responseContentType, isHtmlResponse]);
   const responseBodyText = useMemo(() => {
-    if (isJsonContent(responseContentType) && prettyPrintResponse) {
+    if (isPrettyPrintableResponse && prettyPrintResponse) {
       return responsePrettyBody;
     }
     return bufferPreview(responsePrettyBody);
-  }, [responsePrettyBody, responseContentType, prettyPrintResponse]);
+  }, [responsePrettyBody, responseContentType, prettyPrintResponse, isPrettyPrintableResponse]);
   const responseBodySaveText = useMemo(() => {
     if (!selected?.responseBody) return '';
-    if (isJsonContent(responseContentType) && prettyPrintResponse) {
+    if (isPrettyPrintableResponse && prettyPrintResponse) {
       return responsePrettyBody;
     }
     return selected.responseBody;
-  }, [selected, responseContentType, prettyPrintResponse, responsePrettyBody]);
+  }, [selected, responseContentType, prettyPrintResponse, responsePrettyBody, isPrettyPrintableResponse]);
 
   const handleSaveResponseBody = () => {
     if (!selected?.responseBody) return;
     const api = window.electronAPI;
     if (!api?.saveResponseBody) return;
-    const extension = isJsonContent(responseContentType) ? 'json' : 'txt';
+    const extension = isJsonContent(responseContentType) ? 'json' : isHtmlResponse ? 'html' : 'txt';
     api.saveResponseBody({
       body: responseBodySaveText,
       defaultPath: `response-body.${extension}`,
@@ -595,7 +791,7 @@ function App() {
                           <div className="kv-title kv-title-row">
                             <span>BODY</span>
                             <div className="kv-actions">
-                              {isJsonContent(responseContentType) && (
+                              {isPrettyPrintableResponse && (
                                 <label className="toggle-field">
                                   <input
                                     type="checkbox"
@@ -616,10 +812,12 @@ function App() {
                               </button>
                             </div>
                           </div>
-                          <pre className="plain-pre code-view">
-                            {isJsonContent(responseContentType) && prettyPrintResponse
-                              ? renderJsonHighlighted(responseBodyText)
-                              : responseBodyText}
+                            <pre className="plain-pre code-view">
+                              {prettyPrintResponse && isJsonContent(responseContentType)
+                                ? renderJsonHighlighted(responseBodyText)
+                                : prettyPrintResponse && isHtmlResponse
+                                  ? renderHtmlHighlighted(responseBodyText)
+                                  : responseBodyText}
                           </pre>
                         </div>
                       </div>
