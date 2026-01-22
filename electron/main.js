@@ -3,6 +3,7 @@ const path = require('path');
 const { Proxy: createProxy } = require('http-mitm-proxy');
 const fs = require('fs');
 const zlib = require('zlib');
+const forge = require('node-forge');
 
 const HISTORY_LIMIT = 500;
 const PROXY_PORT_START = 8000;
@@ -10,6 +11,119 @@ const entries = [];
 let caCertPath = null;
 let proxyInstance;
 let proxyPort = PROXY_PORT_START;
+
+const CA_SUBJECT = [
+  { name: 'commonName', value: 'HermesProxyCA' },
+  { name: 'countryName', value: 'Internet' },
+  { shortName: 'ST', value: 'Internet' },
+  { name: 'localityName', value: 'Internet' },
+  { name: 'organizationName', value: 'Hermes Proxy' },
+  { shortName: 'OU', value: 'CA' },
+];
+
+const CA_EXTENSIONS = [
+  { name: 'basicConstraints', cA: true },
+  {
+    name: 'keyUsage',
+    keyCertSign: true,
+    digitalSignature: true,
+    nonRepudiation: true,
+    keyEncipherment: true,
+    dataEncipherment: true,
+  },
+  {
+    name: 'extKeyUsage',
+    serverAuth: true,
+    clientAuth: true,
+    codeSigning: true,
+    emailProtection: true,
+    timeStamping: true,
+  },
+  {
+    name: 'nsCertType',
+    client: true,
+    server: true,
+    email: true,
+    objs: true,
+    sslCA: true,
+    emailCA: true,
+    objCA: true,
+  },
+  { name: 'subjectKeyIdentifier' },
+];
+
+const getCertCommonName = (pemText) => {
+  try {
+    const cert = forge.pki.certificateFromPem(pemText);
+    const field = cert.subject.getField('CN');
+    return field?.value || null;
+  } catch (err) {
+    return null;
+  }
+};
+
+const randomSerialNumber = () => {
+  let serial = '';
+  for (let i = 0; i < 4; i += 1) {
+    serial += `00000000${Math.floor(Math.random() * 256 ** 4).toString(16)}`.slice(-8);
+  }
+  return serial;
+};
+
+const ensureHermesCa = async (caDir) => {
+  const certsDir = path.join(caDir, 'certs');
+  const keysDir = path.join(caDir, 'keys');
+  const certPath = path.join(certsDir, 'ca.pem');
+  const privateKeyPath = path.join(keysDir, 'ca.private.key');
+  const publicKeyPath = path.join(keysDir, 'ca.public.key');
+  fs.mkdirSync(certsDir, { recursive: true });
+  fs.mkdirSync(keysDir, { recursive: true });
+
+  if (fs.existsSync(certPath)) {
+    const pemText = fs.readFileSync(certPath, 'utf8');
+    const commonName = getCertCommonName(pemText);
+    if (commonName === 'HermesProxyCA') {
+      return;
+    }
+  }
+
+  const keys = await new Promise((resolve, reject) => {
+    forge.pki.rsa.generateKeyPair({ bits: 2048 }, (err, keyPair) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(keyPair);
+    });
+  });
+  const cert = forge.pki.createCertificate();
+  cert.publicKey = keys.publicKey;
+  cert.serialNumber = randomSerialNumber();
+  cert.validity.notBefore = new Date();
+  cert.validity.notBefore.setDate(cert.validity.notBefore.getDate() - 1);
+  cert.validity.notAfter = new Date();
+  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10);
+  cert.setSubject(CA_SUBJECT);
+  cert.setIssuer(CA_SUBJECT);
+  cert.setExtensions(CA_EXTENSIONS);
+  cert.sign(keys.privateKey, forge.md.sha256.create());
+
+  fs.writeFileSync(certPath, forge.pki.certificateToPem(cert));
+  fs.writeFileSync(privateKeyPath, forge.pki.privateKeyToPem(keys.privateKey));
+  fs.writeFileSync(publicKeyPath, forge.pki.publicKeyToPem(keys.publicKey));
+};
+
+const pemToDer = (pemText) => {
+  if (!pemText) return null;
+  const match = pemText.match(/-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/);
+  if (!match) return null;
+  const b64 = match[1].replace(/\s+/g, '');
+  try {
+    return Buffer.from(b64, 'base64');
+  } catch (err) {
+    return null;
+  }
+};
 
 const broadcastCaReady = () => {
   if (!caCertPath) return;
@@ -132,6 +246,7 @@ const toTargetUrl = (ctx) => {
 
 const startMitmProxy = async () => {
   const caDir = path.join(app.getPath('userData'), 'mitm-ca');
+  await ensureHermesCa(caDir);
   const proxy = new createProxy();
 
   proxy.onError((ctx, err, kind) => {
@@ -290,6 +405,30 @@ ipcMain.handle('proxy:open-ca-folder', () => {
     return true;
   }
   return false;
+});
+ipcMain.handle('proxy:export-ca-certificate', async () => {
+  if (!caCertPath) return false;
+  try {
+    const pemText = fs.readFileSync(caCertPath, 'utf8');
+    const derBuffer = pemToDer(pemText);
+    if (!derBuffer) return false;
+    const defaultDir = app.getPath('downloads');
+    const savePath = await dialog.showSaveDialog({
+      title: 'Export Hermes Proxy CA certificate',
+      defaultPath: path.join(defaultDir, 'hermes-proxy-ca.cer'),
+      filters: [{ name: 'Certificate', extensions: ['cer', 'crt'] }],
+    });
+    if (savePath.canceled || !savePath.filePath) return false;
+    const filePath = savePath.filePath.endsWith('.cer') || savePath.filePath.endsWith('.crt')
+      ? savePath.filePath
+      : `${savePath.filePath}.cer`;
+    fs.writeFileSync(filePath, derBuffer);
+    shell.showItemInFolder(filePath);
+    return true;
+  } catch (err) {
+    console.error('Failed to export CA certificate', err);
+    return false;
+  }
 });
 ipcMain.handle('proxy:traffic-context-menu', async (event, entryId) => {
   const entry = entries.find((e) => e.id === entryId);

@@ -835,7 +835,7 @@ function App() {
               <p>
                 <button
                   className="export-btn"
-                  onClick={() => window.electronAPI?.openCaFolder?.()}
+                  onClick={() => window.electronAPI?.exportCaCertificate?.()}
                   disabled={!caPath}
                   title={caPath || 'Still generating CA'}
                 >
