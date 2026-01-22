@@ -401,6 +401,37 @@ tbody tr.selected {
   color: #cbd5e1;
 }
 
+.kv-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.kv-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-btn {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+  color: #cbd5e1;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  border-color: rgba(96, 165, 250, 0.8);
+  color: #93c5fd;
+}
+
 .toggle-field {
   margin-left: 0.75rem;
   font-size: 0.75rem;

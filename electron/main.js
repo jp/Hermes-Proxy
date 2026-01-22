@@ -345,6 +345,19 @@ ipcMain.handle('proxy:traffic-context-menu', async (event, entryId) => {
   menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });
 });
 
+ipcMain.handle('proxy:save-response-body', async (_event, payload) => {
+  const body = payload?.body;
+  if (!body) return false;
+  const defaultPath = payload?.defaultPath || 'response-body.txt';
+  const savePath = await dialog.showSaveDialog({
+    title: 'Save Response Body',
+    defaultPath,
+  });
+  if (savePath.canceled || !savePath.filePath) return false;
+  fs.writeFileSync(savePath.filePath, body, 'utf-8');
+  return true;
+});
+
 const exportEntryAsHar = async (entryId) => {
   const entry = entries.find((e) => e.id === entryId);
   if (!entry) return;

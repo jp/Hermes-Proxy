@@ -312,6 +312,24 @@ function App() {
     }
     return bufferPreview(responsePrettyBody);
   }, [responsePrettyBody, responseContentType, prettyPrintResponse]);
+  const responseBodySaveText = useMemo(() => {
+    if (!selected?.responseBody) return '';
+    if (isJsonContent(responseContentType) && prettyPrintResponse) {
+      return responsePrettyBody;
+    }
+    return selected.responseBody;
+  }, [selected, responseContentType, prettyPrintResponse, responsePrettyBody]);
+
+  const handleSaveResponseBody = () => {
+    if (!selected?.responseBody) return;
+    const api = window.electronAPI;
+    if (!api?.saveResponseBody) return;
+    const extension = isJsonContent(responseContentType) ? 'json' : 'txt';
+    api.saveResponseBody({
+      body: responseBodySaveText,
+      defaultPath: `response-body.${extension}`,
+    });
+  };
   const performanceData = useMemo(() => {
     if (!selected) return null;
     const responseHeaders = selected.responseHeaders || {};
@@ -574,18 +592,29 @@ function App() {
                     {!responseBodyCollapsed && (
                       <div className="detail-body" aria-label="Response body">
                         <div className="plain-field">
-                          <div className="kv-title">
-                            BODY
-                            {isJsonContent(responseContentType) && (
-                              <label className="toggle-field">
-                                <input
-                                  type="checkbox"
-                                  checked={prettyPrintResponse}
-                                  onChange={(e) => setPrettyPrintResponse(e.target.checked)}
-                                />
-                                Pretty print
-                              </label>
-                            )}
+                          <div className="kv-title kv-title-row">
+                            <span>BODY</span>
+                            <div className="kv-actions">
+                              {isJsonContent(responseContentType) && (
+                                <label className="toggle-field">
+                                  <input
+                                    type="checkbox"
+                                    checked={prettyPrintResponse}
+                                    onChange={(e) => setPrettyPrintResponse(e.target.checked)}
+                                  />
+                                  Pretty print
+                                </label>
+                              )}
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                onClick={handleSaveResponseBody}
+                                title="Save this body as file"
+                                aria-label="Save this body as file"
+                              >
+                                <i className="fa-solid fa-download"></i>
+                              </button>
+                            </div>
                           </div>
                           <pre className="plain-pre code-view">
                             {isJsonContent(responseContentType) && prettyPrintResponse
