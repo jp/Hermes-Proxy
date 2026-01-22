@@ -351,18 +351,26 @@ function App() {
     if (!selected?.responseBody) return false;
     return isJsonContent(responseContentType) || isHtmlResponse;
   }, [selected, responseContentType, isHtmlResponse]);
+  const responseDisplayBody = useMemo(() => {
+    if (!selected) return '';
+    return selected.responseDecodedBody || selected.responseBody || '';
+  }, [selected]);
+  const requestDisplayBody = useMemo(() => {
+    if (!selected) return '';
+    return selected.requestDecodedBody || selected.requestBody || '';
+  }, [selected]);
   const responsePrettyBody = useMemo(() => {
-    if (!selected?.responseBody) return '';
-    if (!prettyPrintResponse) return selected.responseBody;
+    if (!responseDisplayBody) return '';
+    if (!prettyPrintResponse) return responseDisplayBody;
     if (isJsonContent(responseContentType)) {
-      const pretty = tryPrettyJson(selected.responseBody);
-      return pretty ?? selected.responseBody;
+      const pretty = tryPrettyJson(responseDisplayBody);
+      return pretty ?? responseDisplayBody;
     }
     if (isHtmlResponse) {
-      return prettyPrintHtml(selected.responseBody);
+      return prettyPrintHtml(responseDisplayBody);
     }
-    return selected.responseBody;
-  }, [selected, prettyPrintResponse, responseContentType, isHtmlResponse]);
+    return responseDisplayBody;
+  }, [responseDisplayBody, prettyPrintResponse, responseContentType, isHtmlResponse]);
   const responseBodyText = useMemo(() => {
     if (isPrettyPrintableResponse && prettyPrintResponse) {
       return responsePrettyBody;
@@ -370,12 +378,12 @@ function App() {
     return bufferPreview(responsePrettyBody);
   }, [responsePrettyBody, responseContentType, prettyPrintResponse, isPrettyPrintableResponse]);
   const responseBodySaveText = useMemo(() => {
-    if (!selected?.responseBody) return '';
+    if (!responseDisplayBody) return '';
     if (isPrettyPrintableResponse && prettyPrintResponse) {
       return responsePrettyBody;
     }
-    return selected.responseBody;
-  }, [selected, responseContentType, prettyPrintResponse, responsePrettyBody, isPrettyPrintableResponse]);
+    return responseDisplayBody;
+  }, [responseDisplayBody, responseContentType, prettyPrintResponse, responsePrettyBody, isPrettyPrintableResponse]);
   const prismLanguage = useMemo(() => {
     if (!prettyPrintResponse) return null;
     if (isJsonContent(responseContentType)) return 'json';
@@ -595,10 +603,10 @@ function App() {
                           ))}
                         </div>
                       </div>
-                      {selected.requestBody && selected.requestBody.length > 0 && (
+                      {requestDisplayBody && requestDisplayBody.length > 0 && (
                         <div className="plain-field" aria-label="Request body">
                           <div className="kv-title">BODY</div>
-                          <pre className="plain-pre">{bufferPreview(selected.requestBody)}</pre>
+                          <pre className="plain-pre">{bufferPreview(requestDisplayBody)}</pre>
                         </div>
                       )}
                     </div>

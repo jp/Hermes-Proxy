@@ -214,7 +214,15 @@ const buildEntry = ({
   requestHeaders: request.headers || {},
   responseHeaders: responseHeaders || {},
   requestBody: bodyToText(requestBody),
+  requestDecodedBody: (() => {
+    const decoded = decodeBody(requestBody, getHeaderValue(request.headers || {}, 'content-encoding'));
+    return decoded ? bodyToText(decoded) : null;
+  })(),
   responseBody: bodyToText(responseBody),
+  responseDecodedBody: (() => {
+    const decoded = decodeBody(responseBody, getHeaderValue(responseHeaders || {}, 'content-encoding'));
+    return decoded ? bodyToText(decoded) : null;
+  })(),
   requestBodySize: requestBody?.length || 0,
   responseBodySize: responseBody?.length || 0,
   requestEncoding: getHeaderValue(request.headers || {}, 'content-encoding') || null,
