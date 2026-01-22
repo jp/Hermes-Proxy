@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHistory: () => ipcRenderer.invoke('proxy:get-history'),
   getCaCertificate: () => ipcRenderer.invoke('proxy:get-ca'),
   getProxyPort: () => ipcRenderer.invoke('proxy:get-port'),
+  repeatRequest: (payload) => ipcRenderer.invoke('proxy:repeat-request', payload),
   saveResponseBody: (payload) => ipcRenderer.invoke('proxy:save-response-body', payload),
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),

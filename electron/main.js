@@ -4,6 +4,8 @@ const { Proxy: createProxy } = require('http-mitm-proxy');
 const fs = require('fs');
 const zlib = require('zlib');
 const forge = require('node-forge');
+const http = require('http');
+const https = require('https');
 
 const HISTORY_LIMIT = 500;
 const PROXY_PORT_START = 8000;
@@ -407,6 +409,18 @@ ipcMain.handle('proxy:get-port', () => proxyPort);
 
 ipcMain.handle('proxy:get-history', () => entries);
 ipcMain.handle('proxy:get-ca', () => ({ caCertPath }));
+ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
+  const entryId = typeof payload === 'string' ? payload : payload?.entryId;
+  const entry = entries.find((e) => e.id === entryId);
+  if (!entry) return false;
+  try {
+    await repeatEntryRequest(entry, typeof payload === 'object' ? payload : {});
+    return true;
+  } catch (err) {
+    console.error('Failed to repeat request', err);
+    return false;
+  }
+});
 ipcMain.handle('proxy:open-ca-folder', () => {
   if (caCertPath) {
     shell.showItemInFolder(caCertPath);
@@ -566,6 +580,115 @@ const buildEntryUrl = (entry) => {
   const protocol = entry.protocol?.replace(':', '') || 'http';
   return `${protocol}://${entry.host}${entry.path}${entry.query || ''}`;
 };
+
+const sanitizeHeaders = (headers = {}, options = {}) => {
+  const stripContentEncoding = Boolean(options.stripContentEncoding);
+  const sanitized = {};
+  Object.entries(headers).forEach(([name, value]) => {
+    if (typeof value === 'undefined') return;
+    const lower = name.toLowerCase();
+    if (lower === 'host' || lower === 'content-length' || lower === 'proxy-connection') return;
+    if (stripContentEncoding && lower === 'content-encoding') return;
+    sanitized[name] = Array.isArray(value) ? value.join(', ') : String(value);
+  });
+  return sanitized;
+};
+
+const resolveReplayUrl = (entry, overrideUrl) => {
+  const candidate = overrideUrl?.trim();
+  if (!candidate) {
+    return new URL(buildEntryUrl(entry));
+  }
+  try {
+    return new URL(candidate);
+  } catch (err) {
+    if (!candidate.includes('://')) {
+      const protocol = entry.protocol || 'http:';
+      return new URL(`${protocol}//${candidate}`);
+    }
+    throw err;
+  }
+};
+
+const buildReplayHeaders = (entry, overrides) => {
+  const list = overrides?.headers;
+  if (!Array.isArray(list)) return entry.requestHeaders || {};
+  return list.reduce((acc, item) => {
+    const name = String(item?.name || '').trim();
+    if (!name) return acc;
+    acc[name] = String(item?.value ?? '');
+    return acc;
+  }, {});
+};
+
+const repeatEntryRequest = (entry, overrides = {}) =>
+  new Promise((resolve, reject) => {
+    const url = resolveReplayUrl(entry, overrides.url);
+    const isHttps = url.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const method = entry.method || 'GET';
+    const hasDecodedBody = Boolean(entry.requestDecodedBody);
+    const requestBodyText = hasDecodedBody ? entry.requestDecodedBody : entry.requestBody;
+    const requestBodyBuffer = requestBodyText ? Buffer.from(requestBodyText) : Buffer.alloc(0);
+    const replayHeaders = buildReplayHeaders(entry, overrides);
+    const headers = sanitizeHeaders(replayHeaders, { stripContentEncoding: hasDecodedBody });
+    const options = {
+      method,
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      headers,
+    };
+    const startedAt = Date.now();
+    const req = transport.request(options, (res) => {
+      const responseChunks = [];
+      res.on('data', (chunk) => responseChunks.push(chunk));
+      res.on('end', () => {
+        const responseBody = Buffer.concat(responseChunks);
+        broadcastEntry(
+          buildEntry({
+            target: url,
+            request: {
+              method,
+              headers: replayHeaders,
+              httpVersion: entry.requestHttpVersion?.replace('HTTP/', '') || '1.1',
+            },
+            status: res.statusCode,
+            responseHeaders: res.headers,
+            requestBody: requestBodyBuffer,
+            responseBody,
+            responseHttpVersion: res.httpVersion,
+            durationMs: Date.now() - startedAt,
+          })
+        );
+        resolve(true);
+      });
+    });
+    req.on('error', (err) => {
+      broadcastEntry(
+        buildEntry({
+          target: url,
+          request: {
+            method,
+            headers: replayHeaders,
+            httpVersion: entry.requestHttpVersion?.replace('HTTP/', '') || '1.1',
+          },
+          status: 500,
+          responseHeaders: {},
+          requestBody: requestBodyBuffer,
+          responseBody: Buffer.alloc(0),
+          responseHttpVersion: null,
+          durationMs: Date.now() - startedAt,
+          error: err,
+        })
+      );
+      reject(err);
+    });
+    if (requestBodyBuffer.length) {
+      req.write(requestBodyBuffer);
+    }
+    req.end();
+  });
 
 const escapeSingleQuotes = (value) => String(value).replace(/'/g, `'\"'\"'`);
 const escapePowerShell = (value) => String(value).replace(/'/g, "''");

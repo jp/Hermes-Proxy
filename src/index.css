@@ -350,6 +350,20 @@ tbody tr.selected {
   cursor: default;
 }
 
+.detail-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(148, 163, 184, 0.1);
+  padding: 0.8rem;
+}
+
+.detail-header-row .detail-header {
+  background: transparent;
+  padding: 0;
+  flex: 1;
+}
+
 .detail-title {
   display: flex;
   flex-direction: column;
@@ -381,7 +395,7 @@ tbody tr.selected {
 .detail-body {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
   padding: 0.75rem;
 }
 
@@ -446,13 +460,29 @@ tbody tr.selected {
 }
 
 .request-body .plain-field {
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.45rem;
 }
 
 .plain-text,
 .plain-pre {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   color: #e2e8f0;
+}
+
+.plain-input {
+  width: 100%;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: #e2e8f0;
+  padding: 0.45rem 0.6rem;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.9rem;
+}
+
+.plain-input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
 }
 
 .plain-text {
@@ -524,13 +554,13 @@ tbody tr.selected {
 
 .headers-grid {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.3rem;
 }
 
 .headers-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 0.75rem;
+  gap: 0.5rem;
   align-items: start;
 }
 
@@ -544,6 +574,31 @@ tbody tr.selected {
 
 .header-name {
   color: #cbd5e1;
+}
+
+.header-input,
+.header-cell {
+  width: 100%;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: #e2e8f0;
+  padding: 0.35rem 0.5rem;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.header-input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+}
+
+.header-value-input {
+  resize: none;
+  line-height: 1.3;
+  min-height: calc(1.3em + 0.7rem);
+  max-height: calc(3 * 1.3em + 0.7rem);
+  overflow-y: auto;
 }
 
 .empty {

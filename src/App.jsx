@@ -17,6 +17,12 @@ const headersToText = (headers = {}) =>
     .map(([key, value]) => `${key}: ${value}`)
     .join('\n');
 
+const buildEntryUrl = (entry) => {
+  const protocol = entry?.protocol?.replace(':', '') || 'http';
+  if (!entry) return '';
+  return `${protocol}://${entry.host}${entry.path}${entry.query || ''}`;
+};
+
 const headersToList = (headers = {}) => Object.entries(headers);
 
 const bufferPreview = (text = '') => (text.length > 4000 ? `${text.slice(0, 4000)}\n…truncated…` : text);
@@ -31,6 +37,14 @@ const formatBytes = (bytes) => {
 };
 
 const formatMs = (ms) => (typeof ms === 'number' ? `${ms} ms` : '—');
+
+const resizeTextarea = (el) => {
+  if (!el) return;
+  el.style.height = 'auto';
+  const maxHeight = Number.parseFloat(window.getComputedStyle(el).maxHeight || '0');
+  const clamped = maxHeight ? Math.min(el.scrollHeight, maxHeight) : el.scrollHeight;
+  el.style.height = `${clamped}px`;
+};
 
 const getHeaderValue = (headers, name) => {
   if (!headers) return '';
@@ -176,6 +190,8 @@ function App() {
   const [responseBodyCollapsed, setResponseBodyCollapsed] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
+  const [requestUrlDraft, setRequestUrlDraft] = useState('');
+  const [requestHeadersDraft, setRequestHeadersDraft] = useState([]);
   const [proxyPort, setProxyPort] = useState(8000);
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
@@ -309,7 +325,43 @@ function App() {
     setIsResizing(true);
   };
 
+  const handleRepeatRequest = async () => {
+    if (!selected) return;
+    await window.electronAPI?.repeatRequest?.({
+      entryId: selected.id,
+      url: requestUrlDraft,
+      headers: requestHeadersDraft,
+    });
+  };
+
+  const handleHeaderValueChange = (event, index) => {
+    const next = [...requestHeadersDraft];
+    next[index] = { ...next[index], value: event.target.value };
+    setRequestHeadersDraft(next);
+    resizeTextarea(event.target);
+  };
+
   const selected = useMemo(() => entries.find((e) => e.id === selectedId), [entries, selectedId]);
+
+  useEffect(() => {
+    document.querySelectorAll('.header-value-input').forEach((el) => resizeTextarea(el));
+  }, [requestHeadersDraft]);
+
+  useEffect(() => {
+    if (!selected) {
+      setRequestUrlDraft('');
+      setRequestHeadersDraft([]);
+      return;
+    }
+    setRequestUrlDraft(buildEntryUrl(selected));
+    setRequestHeadersDraft(
+      headersToList(selected.requestHeaders).map(([name, value]) => ({
+        name: String(name),
+        value: Array.isArray(value) ? value.join(', ') : String(value ?? ''),
+      }))
+    );
+  }, [selected]);
+
   const filteredEntries = useMemo(() => {
     if (!filterText.trim()) return entries;
     const q = filterText.toLowerCase();
@@ -566,19 +618,29 @@ function App() {
             {selected && (
               <div className="details-grid">
                 <div className="detail-section">
-                  <button
-                    className="detail-header"
-                    onClick={() => setRequestCollapsed((v) => !v)}
-                    type="button"
-                  >
-                    <span className="icon">
-                      <i className={`fa-solid fa-caret-${requestCollapsed ? 'right' : 'down'}`}></i>
-                    </span>
-                    <div className="detail-title">
-                      <div className="detail-kicker">REQUEST</div>
-                      <div className="detail-line">{requestLine}</div>
-                    </div>
-                  </button>
+                  <div className="detail-header-row">
+                    <button
+                      className="detail-header"
+                      onClick={() => setRequestCollapsed((v) => !v)}
+                      type="button"
+                    >
+                      <span className="icon">
+                        <i className={`fa-solid fa-caret-${requestCollapsed ? 'right' : 'down'}`}></i>
+                      </span>
+                      <div className="detail-title">
+                        <div className="detail-kicker">REQUEST</div>
+                        <div className="detail-line">{requestLine}</div>
+                      </div>
+                    </button>
+                    <button
+                      className="icon-btn repeat-btn"
+                      type="button"
+                      aria-label="Repeat request"
+                      onClick={handleRepeatRequest}
+                    >
+                      <i className="fa-solid fa-repeat"></i>
+                    </button>
+                  </div>
                   {!requestCollapsed && (
                     <div className="detail-body request-body">
                       <div className="plain-field" aria-label="Request method">
@@ -587,18 +649,35 @@ function App() {
                       </div>
                       <div className="plain-field" aria-label="Request url">
                         <div className="kv-title">URL</div>
-                        <div className="plain-text">{`${selected.host}${selected.path}${selected.query || ''}`}</div>
+                        <input
+                          className="plain-input"
+                          type="text"
+                          value={requestUrlDraft}
+                          onChange={(event) => setRequestUrlDraft(event.target.value)}
+                        />
                       </div>
                       <div className="plain-field" aria-label="Request headers">
                         <div className="kv-title">HEADERS</div>
                         <div className="headers-grid">
-                          {headersToList(selected.requestHeaders).length === 0 && (
-                            <div className="empty">No headers</div>
-                          )}
-                          {headersToList(selected.requestHeaders).map(([key, value]) => (
-                            <div className="headers-row" key={key}>
-                              <div className="header-name">{key}</div>
-                              <div className="header-value">{String(value)}</div>
+                          {requestHeadersDraft.length === 0 && <div className="empty">No headers</div>}
+                          {requestHeadersDraft.map((header, index) => (
+                            <div className="headers-row" key={`${header.name}-${index}`}>
+                              <input
+                                className="header-input header-name-input"
+                                type="text"
+                                value={header.name}
+                                onChange={(event) => {
+                                  const next = [...requestHeadersDraft];
+                                  next[index] = { ...next[index], name: event.target.value };
+                                  setRequestHeadersDraft(next);
+                                }}
+                              />
+                              <textarea
+                                className="header-input header-value-input"
+                                rows={1}
+                                value={header.value}
+                                onChange={(event) => handleHeaderValueChange(event, index)}
+                              />
                             </div>
                           ))}
                         </div>
@@ -641,8 +720,8 @@ function App() {
                           )}
                           {headersToList(selected.responseHeaders).map(([key, value]) => (
                             <div className="headers-row" key={key}>
-                              <div className="header-name">{key}</div>
-                              <div className="header-value">{String(value)}</div>
+                              <div className="header-name header-cell">{key}</div>
+                              <div className="header-value header-cell">{String(value)}</div>
                             </div>
                           ))}
                         </div>
