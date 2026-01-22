@@ -202,6 +202,7 @@ function App() {
   useEffect(() => {
     let cleanup;
     const api = window.electronAPI;
+    let offClearTraffic;
 
     if (api?.getHistory) {
       api.getHistory().then((history) => {
@@ -223,7 +224,17 @@ function App() {
       });
     }
 
-    return () => cleanup?.();
+    if (api?.onClearTraffic) {
+      offClearTraffic = api.onClearTraffic(() => {
+        setEntries([]);
+        setSelectedId(null);
+      });
+    }
+
+    return () => {
+      cleanup?.();
+      offClearTraffic?.();
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -332,6 +343,19 @@ function App() {
       url: requestUrlDraft,
       headers: requestHeadersDraft,
     });
+  };
+
+  const handleExportAllHar = async () => {
+    await window.electronAPI?.exportAllHar?.();
+  };
+
+  const handleImportHar = async () => {
+    await window.electronAPI?.importHar?.();
+  };
+
+  const handleClearTraffic = async () => {
+    await window.electronAPI?.clearTraffic?.();
+    setSelectedId(null);
   };
 
   const handleHeaderValueChange = (event, index) => {
@@ -886,6 +910,33 @@ function App() {
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Filter by method, host, headers, status..."
               />
+              <button
+                className="icon-btn"
+                type="button"
+                aria-label="Export all traffic as HAR"
+                title="Export all traffic as HAR"
+                onClick={handleExportAllHar}
+              >
+                <i className="fa-solid fa-save"></i>
+              </button>
+              <button
+                className="icon-btn"
+                type="button"
+                aria-label="Import HAR file"
+                title="Import traffic from a HAR file"
+                onClick={handleImportHar}
+              >
+                <i className="fa-solid fa-folder-open"></i>
+              </button>
+              <button
+                className="icon-btn"
+                type="button"
+                aria-label="Clear traffic"
+                title="Clear all traffic"
+                onClick={handleClearTraffic}
+              >
+                <i className="fa-solid fa-trash"></i>
+              </button>
             </div>
           </div>
         </div>

@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('proxy-entry', listener);
     return () => ipcRenderer.removeListener('proxy-entry', listener);
   },
+  onClearTraffic: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('proxy-clear-traffic', listener);
+    return () => ipcRenderer.removeListener('proxy-clear-traffic', listener);
+  },
   onCaReady: (callback) => {
     const listener = (_event, caPath) => callback(caPath);
     ipcRenderer.on('proxy-ca-ready', listener);
@@ -20,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCaCertificate: () => ipcRenderer.invoke('proxy:get-ca'),
   getProxyPort: () => ipcRenderer.invoke('proxy:get-port'),
   repeatRequest: (payload) => ipcRenderer.invoke('proxy:repeat-request', payload),
+  exportAllHar: () => ipcRenderer.invoke('proxy:export-all-har'),
+  importHar: () => ipcRenderer.invoke('proxy:import-har'),
+  clearTraffic: () => ipcRenderer.invoke('proxy:clear-traffic'),
   saveResponseBody: (payload) => ipcRenderer.invoke('proxy:save-response-body', payload),
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),

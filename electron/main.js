@@ -192,6 +192,75 @@ const normalizeHttpVersion = (version, major, minor) => {
   return 'HTTP/1.1';
 };
 
+const normalizeHarHttpVersion = (version) => {
+  if (!version) return 'HTTP/1.1';
+  const trimmed = String(version).trim();
+  return /^HTTP\//i.test(trimmed) ? trimmed : `HTTP/${trimmed}`;
+};
+
+const headersListToObject = (headers = []) =>
+  headers.reduce((acc, header) => {
+    if (!header) return acc;
+    const name = String(header.name || '').trim();
+    if (!name) return acc;
+    const value = normalizeHeaderValue(header.value);
+    if (acc[name]) {
+      acc[name] = `${acc[name]}, ${value}`;
+    } else {
+      acc[name] = value;
+    }
+    return acc;
+  }, {});
+
+const decodeHarBody = (content = {}) => {
+  if (!content?.text) return Buffer.alloc(0);
+  if (content.encoding === 'base64') {
+    return Buffer.from(content.text, 'base64');
+  }
+  return Buffer.from(content.text, 'utf8');
+};
+
+const buildEntryFromHar = (harEntry) => {
+  const request = harEntry?.request || {};
+  const response = harEntry?.response || {};
+  const url = new URL(request.url || 'http://unknown');
+  const requestHeaders = headersListToObject(request.headers || []);
+  const responseHeaders = headersListToObject(response.headers || []);
+  const requestBodyBuffer = request.postData?.text ? Buffer.from(request.postData.text, 'utf8') : Buffer.alloc(0);
+  const responseBodyBuffer = decodeHarBody(response.content || {});
+  const requestEncoding = getHeaderValue(requestHeaders, 'content-encoding') || null;
+  const responseEncoding = getHeaderValue(responseHeaders, 'content-encoding') || null;
+  const decodedRequest = decodeBody(requestBodyBuffer, requestEncoding);
+  const decodedResponse = decodeBody(responseBodyBuffer, responseEncoding);
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    timestamp: harEntry.startedDateTime || new Date().toISOString(),
+    method: request.method || 'GET',
+    requestHttpVersion: normalizeHarHttpVersion(request.httpVersion),
+    responseHttpVersion: normalizeHarHttpVersion(response.httpVersion),
+    status: typeof response.status === 'number' ? response.status : null,
+    protocol: url.protocol || 'http:',
+    host: url.host || url.hostname,
+    path: url.pathname,
+    query: url.search,
+    requestHeaders,
+    responseHeaders,
+    requestBody: bodyToText(requestBodyBuffer),
+    requestDecodedBody: decodedRequest ? bodyToText(decodedRequest) : null,
+    responseBody: bodyToText(responseBodyBuffer),
+    responseDecodedBody: decodedResponse ? bodyToText(decodedResponse) : null,
+    requestBodySize: requestBodyBuffer.length || 0,
+    responseBodySize: responseBodyBuffer.length || 0,
+    requestEncoding,
+    responseEncoding,
+    requestDecodedSize: decodedRequest?.length ?? null,
+    responseDecodedSize: decodedResponse?.length ?? null,
+    durationMs: typeof harEntry.time === 'number' ? harEntry.time : null,
+    error: null,
+  };
+};
+
 const buildEntry = ({
   target,
   request,
@@ -421,6 +490,47 @@ ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
     return false;
   }
 });
+ipcMain.handle('proxy:export-all-har', async () => {
+  try {
+    return await exportAllEntriesAsHar();
+  } catch (err) {
+    console.error('Failed to export all HAR', err);
+    return false;
+  }
+});
+ipcMain.handle('proxy:import-har', async () => {
+  const openPath = await dialog.showOpenDialog({
+    title: 'Import HAR file',
+    filters: [{ name: 'HAR', extensions: ['har'] }],
+    properties: ['openFile'],
+  });
+  if (openPath.canceled || !openPath.filePaths?.length) return false;
+  try {
+    const fileText = fs.readFileSync(openPath.filePaths[0], 'utf8');
+    const har = JSON.parse(fileText);
+    const harEntries = har?.log?.entries;
+    if (!Array.isArray(harEntries) || harEntries.length === 0) return false;
+    harEntries.forEach((harEntry) => {
+      try {
+        const entry = buildEntryFromHar(harEntry);
+        broadcastEntry(entry);
+      } catch (err) {
+        console.error('Failed to import HAR entry', err);
+      }
+    });
+    return true;
+  } catch (err) {
+    console.error('Failed to import HAR file', err);
+    return false;
+  }
+});
+ipcMain.handle('proxy:clear-traffic', () => {
+  entries.splice(0, entries.length);
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('proxy-clear-traffic');
+  });
+  return true;
+});
 ipcMain.handle('proxy:open-ca-folder', () => {
   if (caCertPath) {
     shell.showItemInFolder(caCertPath);
@@ -519,51 +629,56 @@ ipcMain.handle('proxy:save-response-body', async (_event, payload) => {
   return true;
 });
 
+const buildHarEntry = (entry) => ({
+  startedDateTime: entry.timestamp,
+  time: entry.durationMs ?? 0,
+  request: {
+    method: entry.method,
+    url: buildEntryUrl(entry),
+    httpVersion: entry.requestHttpVersion || 'HTTP/1.1',
+    cookies: [],
+    headers: Object.entries(entry.requestHeaders || {}).map(([name, value]) => ({
+      name,
+      value: normalizeHeaderValue(value),
+    })),
+    queryString: [],
+    headersSize: -1,
+    bodySize: entry.requestBody ? Buffer.byteLength(entry.requestBody) : 0,
+    postData: entry.requestBody
+      ? { mimeType: entry.requestHeaders?.['content-type'] || '', text: entry.requestBody }
+      : undefined,
+  },
+  response: {
+    status: entry.status || 0,
+    statusText: '',
+    httpVersion: entry.responseHttpVersion || 'HTTP/1.1',
+    cookies: [],
+    headers: Object.entries(entry.responseHeaders || {}).map(([name, value]) => ({
+      name,
+      value: normalizeHeaderValue(value),
+    })),
+    content: {
+      size: entry.responseBody ? Buffer.byteLength(entry.responseBody) : 0,
+      text: entry.responseBody || '',
+      mimeType: entry.responseHeaders?.['content-type'] || '',
+    },
+    redirectURL: '',
+    headersSize: -1,
+    bodySize: entry.responseBody ? Buffer.byteLength(entry.responseBody) : 0,
+  },
+  cache: {},
+  timings: { send: 0, wait: 0, receive: 0 },
+});
+
 const exportEntryAsHar = async (entryId) => {
   const entry = entries.find((e) => e.id === entryId);
   if (!entry) return;
 
-  const protocol = entry.protocol?.replace(':', '') || 'http';
   const har = {
     log: {
       version: '1.2',
       creator: { name: 'Hermes Proxy', version: app.getVersion() },
-      entries: [
-        {
-          startedDateTime: entry.timestamp,
-          time: 0,
-          request: {
-            method: entry.method,
-            url: `${protocol}://${entry.host}${entry.path}${entry.query || ''}`,
-            httpVersion: entry.requestHttpVersion || 'HTTP/1.1',
-            cookies: [],
-            headers: Object.entries(entry.requestHeaders || {}).map(([name, value]) => ({ name, value })),
-            queryString: [],
-            headersSize: -1,
-            bodySize: entry.requestBody ? Buffer.byteLength(entry.requestBody) : 0,
-            postData: entry.requestBody
-              ? { mimeType: entry.requestHeaders?.['content-type'] || '', text: entry.requestBody }
-              : undefined,
-          },
-          response: {
-            status: entry.status || 0,
-            statusText: '',
-            httpVersion: entry.responseHttpVersion || 'HTTP/1.1',
-            cookies: [],
-            headers: Object.entries(entry.responseHeaders || {}).map(([name, value]) => ({ name, value })),
-            content: {
-              size: entry.responseBody ? Buffer.byteLength(entry.responseBody) : 0,
-              text: entry.responseBody || '',
-              mimeType: entry.responseHeaders?.['content-type'] || '',
-            },
-            redirectURL: '',
-            headersSize: -1,
-            bodySize: entry.responseBody ? Buffer.byteLength(entry.responseBody) : 0,
-          },
-          cache: {},
-          timings: { send: 0, wait: 0, receive: 0 },
-        },
-      ],
+      entries: [buildHarEntry(entry)],
     },
   };
 
@@ -574,6 +689,25 @@ const exportEntryAsHar = async (entryId) => {
   });
   if (savePath.canceled || !savePath.filePath) return;
   fs.writeFileSync(savePath.filePath, JSON.stringify(har, null, 2), 'utf-8');
+};
+
+const exportAllEntriesAsHar = async () => {
+  if (!entries.length) return false;
+  const har = {
+    log: {
+      version: '1.2',
+      creator: { name: 'Hermes Proxy', version: app.getVersion() },
+      entries: entries.slice().reverse().map((entry) => buildHarEntry(entry)),
+    },
+  };
+  const savePath = await dialog.showSaveDialog({
+    title: 'Export All Traffic as HAR',
+    defaultPath: 'traffic.har',
+    filters: [{ name: 'HAR', extensions: ['har'] }],
+  });
+  if (savePath.canceled || !savePath.filePath) return false;
+  fs.writeFileSync(savePath.filePath, JSON.stringify(har, null, 2), 'utf-8');
+  return true;
 };
 
 const buildEntryUrl = (entry) => {
