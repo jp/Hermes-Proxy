@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-markup';
 
 const MAX_ENTRIES = 20000;
 
@@ -143,148 +146,6 @@ const prettyPrintHtml = (input = '') => {
   });
   return lines.join('\n');
 };
-
-const tokenizeHtmlAttributes = (attributeText = '') => {
-  const tokens = [];
-  const regex = /([^\s=\/]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?/g;
-  let match;
-  while ((match = regex.exec(attributeText)) !== null) {
-    const [, name, value] = match;
-    tokens.push({ type: 'attr', value: name });
-    if (value) {
-      const cleaned = value.replace(/^\s*=\s*/, '');
-      tokens.push({ type: 'punct', value: '=' });
-      tokens.push({ type: 'value', value: cleaned });
-    }
-    tokens.push({ type: 'text', value: ' ' });
-  }
-  if (tokens.length) {
-    tokens.pop();
-  }
-  return tokens;
-};
-
-const renderHtmlHighlighted = (text) => {
-  const parts = [];
-  const regex = /<!--[\s\S]*?-->|<[^>]+>/g;
-  let lastIndex = 0;
-  let match;
-  let key = 0;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith('<!--')) {
-      parts.push(
-        <span key={`html-comment-${key++}`} className="html-token comment">
-          {token}
-        </span>
-      );
-    } else {
-      const tagMatch = token.match(/^<\s*(\/?)([^\s>\/]+)([^>]*)>/s);
-      if (!tagMatch) {
-        parts.push(
-          <span key={`html-tag-${key++}`} className="html-token tag">
-            {token}
-          </span>
-        );
-      } else {
-        const [, closingSlash, tagName, rawAttrs] = tagMatch;
-        const trailingSlash = token.endsWith('/>') ? '/' : '';
-        const attrText = rawAttrs?.replace(/\/\s*$/, '') ?? '';
-        const attrTokens = tokenizeHtmlAttributes(attrText);
-        parts.push(
-          <span key={`html-open-${key++}`} className="html-token punct">
-            {'<'}
-          </span>
-        );
-        if (closingSlash) {
-          parts.push(
-            <span key={`html-close-${key++}`} className="html-token punct">
-              {'/'}
-            </span>
-          );
-        }
-        parts.push(
-          <span key={`html-tagname-${key++}`} className="html-token tag">
-            {tagName}
-          </span>
-        );
-        if (attrTokens.length) {
-          parts.push(' ');
-          attrTokens.forEach((attrToken) => {
-            if (attrToken.type === 'text') {
-              parts.push(' ');
-              return;
-            }
-            parts.push(
-              <span key={`html-${attrToken.type}-${key++}`} className={`html-token ${attrToken.type}`}>
-                {attrToken.value}
-              </span>
-            );
-          });
-        }
-        if (trailingSlash) {
-          parts.push(
-            <span key={`html-self-${key++}`} className="html-token punct">
-              {'/'}
-            </span>
-          );
-        }
-        parts.push(
-          <span key={`html-end-${key++}`} className="html-token punct">
-            {'>'}
-          </span>
-        );
-      }
-    }
-    lastIndex = regex.lastIndex;
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-  return parts;
-};
-
-const tokenizeJson = (text) => {
-  const tokens = [];
-  const regex =
-    /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
-  let lastIndex = 0;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      tokens.push({ type: 'plain', value: text.slice(lastIndex, match.index) });
-    }
-    const value = match[0];
-    let type = 'number';
-    if (value.startsWith('"')) {
-      type = value.endsWith(':') ? 'key' : 'string';
-    } else if (value === 'true' || value === 'false') {
-      type = 'boolean';
-    } else if (value === 'null') {
-      type = 'null';
-    }
-    tokens.push({ type, value });
-    lastIndex = regex.lastIndex;
-  }
-  if (lastIndex < text.length) {
-    tokens.push({ type: 'plain', value: text.slice(lastIndex) });
-  }
-  return tokens;
-};
-
-const renderJsonHighlighted = (text) =>
-  tokenizeJson(text).map((token, index) =>
-    token.type === 'plain' ? (
-      token.value
-    ) : (
-      <span key={`${token.type}-${index}`} className={`json-token ${token.type}`}>
-        {token.value}
-      </span>
-    )
-  );
 
 const summarizeCacheability = (headers = {}) => {
   const cacheControl = getHeaderValue(headers, 'cache-control');
@@ -515,6 +376,17 @@ function App() {
     }
     return selected.responseBody;
   }, [selected, responseContentType, prettyPrintResponse, responsePrettyBody, isPrettyPrintableResponse]);
+  const prismLanguage = useMemo(() => {
+    if (!prettyPrintResponse) return null;
+    if (isJsonContent(responseContentType)) return 'json';
+    if (isHtmlResponse) return 'markup';
+    return null;
+  }, [prettyPrintResponse, responseContentType, isHtmlResponse]);
+  const prismHtml = useMemo(() => {
+    if (!prismLanguage) return '';
+    const language = Prism.languages[prismLanguage] || Prism.languages.markup;
+    return Prism.highlight(responseBodyText, language, prismLanguage);
+  }, [prismLanguage, responseBodyText]);
 
   const handleSaveResponseBody = () => {
     if (!selected?.responseBody) return;
@@ -812,13 +684,13 @@ function App() {
                               </button>
                             </div>
                           </div>
-                            <pre className="plain-pre code-view">
-                              {prettyPrintResponse && isJsonContent(responseContentType)
-                                ? renderJsonHighlighted(responseBodyText)
-                                : prettyPrintResponse && isHtmlResponse
-                                  ? renderHtmlHighlighted(responseBodyText)
-                                  : responseBodyText}
-                          </pre>
+                          {prismLanguage ? (
+                            <pre className={`plain-pre code-view prism-code language-${prismLanguage}`}>
+                              <code dangerouslySetInnerHTML={{ __html: prismHtml || ' ' }} />
+                            </pre>
+                          ) : (
+                            <pre className="plain-pre code-view">{responseBodyText}</pre>
+                          )}
                         </div>
                       </div>
                     )}

@@ -1,3 +1,5 @@
+@import "prismjs/themes/prism-tomorrow.css";
+
 :root {
   color-scheme: light;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -476,44 +478,14 @@ tbody tr.selected {
   line-height: 1.5;
 }
 
-.json-token.key {
-  color: #93c5fd;
+.prism-code {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.json-token.string {
-  color: #fde68a;
-}
-
-.json-token.number {
-  color: #fca5a5;
-}
-
-.json-token.boolean {
-  color: #86efac;
-}
-
-.json-token.null {
-  color: #cbd5e1;
-}
-
-.html-token.tag {
-  color: #93c5fd;
-}
-
-.html-token.attr {
-  color: #fca5a5;
-}
-
-.html-token.value {
-  color: #fde68a;
-}
-
-.html-token.comment {
-  color: #94a3b8;
-}
-
-.html-token.punct {
-  color: #38bdf8;
+.prism-code code {
+  background: transparent;
+  white-space: inherit;
 }
 
 .performance-view {
