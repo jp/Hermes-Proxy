@@ -436,6 +436,35 @@ tbody tr.selected {
   word-break: break-word;
 }
 
+.code-view {
+  background: rgba(2, 6, 23, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.json-token.key {
+  color: #93c5fd;
+}
+
+.json-token.string {
+  color: #fde68a;
+}
+
+.json-token.number {
+  color: #fca5a5;
+}
+
+.json-token.boolean {
+  color: #86efac;
+}
+
+.json-token.null {
+  color: #cbd5e1;
+}
+
 .performance-view {
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);

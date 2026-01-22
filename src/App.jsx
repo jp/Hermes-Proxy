@@ -65,6 +65,45 @@ const tryPrettyJson = (text) => {
   }
 };
 
+const tokenizeJson = (text) => {
+  const tokens = [];
+  const regex =
+    /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push({ type: 'plain', value: text.slice(lastIndex, match.index) });
+    }
+    const value = match[0];
+    let type = 'number';
+    if (value.startsWith('"')) {
+      type = value.endsWith(':') ? 'key' : 'string';
+    } else if (value === 'true' || value === 'false') {
+      type = 'boolean';
+    } else if (value === 'null') {
+      type = 'null';
+    }
+    tokens.push({ type, value });
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    tokens.push({ type: 'plain', value: text.slice(lastIndex) });
+  }
+  return tokens;
+};
+
+const renderJsonHighlighted = (text) =>
+  tokenizeJson(text).map((token, index) =>
+    token.type === 'plain' ? (
+      token.value
+    ) : (
+      <span key={`${token.type}-${index}`} className={`json-token ${token.type}`}>
+        {token.value}
+      </span>
+    )
+  );
+
 const summarizeCacheability = (headers = {}) => {
   const cacheControl = getHeaderValue(headers, 'cache-control');
   const pragma = getHeaderValue(headers, 'pragma');
@@ -91,6 +130,7 @@ function App() {
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [responseCollapsed, setResponseCollapsed] = useState(false);
   const [performanceCollapsed, setPerformanceCollapsed] = useState(false);
+  const [responseBodyCollapsed, setResponseBodyCollapsed] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [proxyPort, setProxyPort] = useState(8000);
@@ -187,6 +227,7 @@ function App() {
     setRequestCollapsed(false);
     setResponseCollapsed(false);
     setPerformanceCollapsed(false);
+    setResponseBodyCollapsed(false);
   }, [selectedId]);
 
   useEffect(() => {
@@ -265,6 +306,12 @@ function App() {
     const pretty = tryPrettyJson(selected.responseBody);
     return pretty ?? selected.responseBody;
   }, [selected, prettyPrintResponse]);
+  const responseBodyText = useMemo(() => {
+    if (isJsonContent(responseContentType) && prettyPrintResponse) {
+      return responsePrettyBody;
+    }
+    return bufferPreview(responsePrettyBody);
+  }, [responsePrettyBody, responseContentType, prettyPrintResponse]);
   const performanceData = useMemo(() => {
     if (!selected) return null;
     const responseHeaders = selected.responseHeaders || {};
@@ -506,8 +553,27 @@ function App() {
                           ))}
                         </div>
                       </div>
-                      {selected.responseBody && selected.responseBody.length > 0 && (
-                        <div className="plain-field" aria-label="Response body">
+                    </div>
+                  )}
+                </div>
+                {selected.responseBody && selected.responseBody.length > 0 && (
+                  <div className="detail-section">
+                    <button
+                      className="detail-header"
+                      onClick={() => setResponseBodyCollapsed((v) => !v)}
+                      type="button"
+                    >
+                      <span className="icon" aria-hidden="true">
+                        <i className={`fa-solid fa-caret-${responseBodyCollapsed ? 'right' : 'down'}`}></i>
+                      </span>
+                      <div className="detail-title">
+                        <div className="detail-kicker">RESPONSE BODY</div>
+                        <div className="detail-line">Payload</div>
+                      </div>
+                    </button>
+                    {!responseBodyCollapsed && (
+                      <div className="detail-body" aria-label="Response body">
+                        <div className="plain-field">
                           <div className="kv-title">
                             BODY
                             {isJsonContent(responseContentType) && (
@@ -521,12 +587,16 @@ function App() {
                               </label>
                             )}
                           </div>
-                          <pre className="plain-pre">{bufferPreview(responsePrettyBody)}</pre>
+                          <pre className="plain-pre code-view">
+                            {isJsonContent(responseContentType) && prettyPrintResponse
+                              ? renderJsonHighlighted(responseBodyText)
+                              : responseBodyText}
+                          </pre>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="detail-section">
                   <button
                     className="detail-header"
