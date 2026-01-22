@@ -1,0 +1,28 @@
+{
+  "name": "hermes-proxy",
+  "version": "1.0.0",
+  "description": "Hermes Proxy desktop app",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && electron .\"",
+    "vite": "vite",
+    "build": "vite build",
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "http-mitm-proxy": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@fortawesome/fontawesome-free": "^7.1.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "concurrently": "^9.0.1",
+    "electron": "^32.2.0",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.1"
+  }
+}
