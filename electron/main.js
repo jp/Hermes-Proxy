@@ -442,7 +442,7 @@ const createWindow = () => {
   if (isDev) {
     win.loadURL('http://localhost:5174');
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
   }
 
   if (caCertPath) {
