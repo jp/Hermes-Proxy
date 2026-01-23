@@ -7,6 +7,7 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && electron .\"",
     "vite": "vite",
     "build": "vite build",
+    "dist": "npm run build && electron-builder",
     "start": "electron ."
   },
   "keywords": [],
@@ -23,8 +24,30 @@
     "@fortawesome/fontawesome-free": "^7.1.0",
     "@vitejs/plugin-react": "^4.3.2",
     "concurrently": "^9.0.1",
-    "electron": "^35.7.5",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.5.0",
     "vite": "^7.3.1",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.hermes.proxy",
+    "productName": "Hermes Proxy",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }
