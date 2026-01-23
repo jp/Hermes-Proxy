@@ -33,14 +33,11 @@ jobs:
       - name: Upload artifacts to release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/**
-          generate_release_notes: true
-
-      - name: Create archive
-        run: tar -czf hermes-proxy-${{ github.ref_name }}.tar.gz dist
-
-      - name: Upload archive to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: hermes-proxy-${{ github.ref_name }}.tar.gz
+          files: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.zip
+            release/*.yml
+            release/*.blockmap
           generate_release_notes: true
