@@ -33,9 +33,11 @@
     "appId": "com.hermes.proxy",
     "productName": "Hermes Proxy",
     "npmRebuild": false,
+    "icon": "src/images/icon.png",
     "files": [
       "dist/**",
       "electron/**",
+      "src/images/icon.png",
       "package.json"
     ],
     "directories": {

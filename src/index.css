@@ -56,6 +56,13 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.brand-logo {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  margin-bottom: 0.6rem;
+}
+
 .nav-item {
   display: flex;
   align-items: center;

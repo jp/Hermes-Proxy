@@ -425,10 +425,12 @@ const startMitmProxy = async () => {
 };
 
 const createWindow = () => {
+  const iconPath = path.join(__dirname, '../src/images/icon.png');
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
     backgroundColor: '#0f172a',
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
