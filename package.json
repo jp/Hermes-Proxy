@@ -32,6 +32,7 @@
   "build": {
     "appId": "com.hermes.proxy",
     "productName": "Hermes Proxy",
+    "npmRebuild": false,
     "files": [
       "dist/**",
       "electron/**",
