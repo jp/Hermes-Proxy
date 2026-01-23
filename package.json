@@ -49,5 +49,8 @@
     "linux": {
       "target": "AppImage"
     }
+  },
+  "overrides": {
+    "tar": "^7.5.4"
   }
 }
