@@ -23,7 +23,7 @@
     "@fortawesome/fontawesome-free": "^7.1.0",
     "@vitejs/plugin-react": "^4.3.2",
     "concurrently": "^9.0.1",
-    "electron": "^32.2.0",
+    "electron": "^35.7.5",
     "vite": "^5.4.10",
     "wait-on": "^8.0.1"
   }
