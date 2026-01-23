@@ -28,6 +28,7 @@ jobs:
         run: npm ci
 
       - name: Sync version with tag
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           npm version "${VERSION}" --no-git-tag-version
