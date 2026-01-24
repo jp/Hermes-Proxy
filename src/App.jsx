@@ -26,6 +26,8 @@ const buildEntryUrl = (entry) => {
 
 const headersToList = (headers = {}) => Object.entries(headers);
 
+const HTTP_METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'];
+
 const createRule = () => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   name: 'New rule',
@@ -235,6 +237,7 @@ function App() {
     const api = window.electronAPI;
     let offClearTraffic;
     let offAddRule;
+    let offRulesUpdated;
 
     if (api?.getHistory) {
       api.getHistory().then((history) => {
@@ -287,6 +290,12 @@ function App() {
       });
     }
 
+    if (api?.onRulesUpdated) {
+      offRulesUpdated = api.onRulesUpdated((nextRules) => {
+        setRules(Array.isArray(nextRules) ? nextRules : []);
+      });
+    }
+
     if (api?.getRules) {
       api.getRules().then((loadedRules) => {
         setRules(Array.isArray(loadedRules) ? loadedRules : []);
@@ -298,6 +307,7 @@ function App() {
       cleanup?.();
       offClearTraffic?.();
       offAddRule?.();
+      offRulesUpdated?.();
     };
   }, []);
 
@@ -425,6 +435,14 @@ function App() {
   const handleClearTraffic = async () => {
     await window.electronAPI?.clearTraffic?.();
     setSelectedId(null);
+  };
+
+  const handleSaveRules = async () => {
+    await window.electronAPI?.saveRules?.();
+  };
+
+  const handleLoadRules = async () => {
+    await window.electronAPI?.loadRules?.();
   };
 
   const handleAddRule = () => {
@@ -1093,9 +1111,29 @@ function App() {
           <section className="panel">
             <div className="header">
               <h1>Rules</h1>
-              <button className="export-btn" type="button" onClick={handleAddRule}>
-                Add rule
-              </button>
+              <div className="header-actions">
+                <button className="export-btn" type="button" onClick={handleAddRule}>
+                  Add rule
+                </button>
+                <button
+                  className="icon-btn"
+                  type="button"
+                  title="Save rules to file"
+                  aria-label="Save rules"
+                  onClick={handleSaveRules}
+                >
+                  <i className="fa-solid fa-save"></i>
+                </button>
+                <button
+                  className="icon-btn"
+                  type="button"
+                  title="Load rules from file"
+                  aria-label="Load rules"
+                  onClick={handleLoadRules}
+                >
+                  <i className="fa-solid fa-folder-open"></i>
+                </button>
+              </div>
             </div>
             <div className="rules-list">
               {rules.length === 0 && <div className="empty">No rules yet.</div>}
@@ -1141,18 +1179,23 @@ function App() {
                     <div className="rule-grid">
                       <label className="rule-field">
                         <span>Methods</span>
-                        <input
-                          type="text"
-                          value={rule.match.methods.join(', ')}
+                        <select
+                          className="rule-methods-select"
+                          value={rule.match.methods[0] || '*'}
                           onChange={(event) => {
-                            const methods = parseListInput(event.target.value, { uppercase: true });
+                            const methods = [event.target.value.toUpperCase()];
                             handleUpdateRule(index, (current) => ({
                               ...current,
                               match: { ...current.match, methods },
                             }));
                           }}
-                          placeholder="GET, POST"
-                        />
+                        >
+                          {HTTP_METHODS.map((method) => (
+                            <option value={method} key={method}>
+                              {method}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="rule-field">
                         <span>Hosts</span>
@@ -1256,31 +1299,33 @@ function App() {
                       ))}
                     </div>
                   </div>
-                    <div className="rule-section">
+                  <div className="rule-section">
+                    <div className="rule-section-header">
                       <div className="kv-title">ACTIONS</div>
-                      <div className="rule-grid">
-                        <label className="rule-field">
-                          <span>Action</span>
-                          <select
-                            value={rule.actions.type}
-                            onChange={(event) => {
-                              const type = event.target.value;
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                actions: {
-                                  ...current.actions,
-                                  type,
-                                  delayMs: type === 'delay' ? current.actions.delayMs : 0,
-                                  overrideHeaders: type === 'overrideHeaders' ? current.actions.overrideHeaders : [],
-                                },
-                              }));
-                            }}
-                          >
-                            <option value="none">None</option>
-                            <option value="delay">Wait before continuing</option>
-                            <option value="overrideHeaders">Override headers</option>
-                          </select>
-                        </label>
+                      <label className="rule-action-label">
+                        <select
+                          className="rule-action-select"
+                          value={rule.actions.type}
+                          onChange={(event) => {
+                            const type = event.target.value;
+                            handleUpdateRule(index, (current) => ({
+                              ...current,
+                              actions: {
+                                ...current.actions,
+                                type,
+                                delayMs: type === 'delay' ? current.actions.delayMs : 0,
+                                overrideHeaders: type === 'overrideHeaders' ? current.actions.overrideHeaders : [],
+                              },
+                            }));
+                          }}
+                        >
+                          <option value="none">None</option>
+                          <option value="delay">Wait before continuing</option>
+                          <option value="overrideHeaders">Override headers</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="rule-grid">
                         {rule.actions.type === 'delay' && (
                           <label className="rule-field">
                             <span>Wait (ms)</span>

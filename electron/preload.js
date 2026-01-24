@@ -8,6 +8,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getRules: () => ipcRenderer.invoke('proxy:get-rules'),
   setRules: (rules) => ipcRenderer.invoke('proxy:set-rules', rules),
+  saveRules: () => ipcRenderer.invoke('proxy:save-rules'),
+  loadRules: () => ipcRenderer.invoke('proxy:load-rules'),
+  onRulesUpdated: (callback) => {
+    const listener = (_event, nextRules) => callback(nextRules);
+    ipcRenderer.on('proxy-rules-updated', listener);
+    return () => ipcRenderer.removeListener('proxy-rules-updated', listener);
+  },
   onClearTraffic: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('proxy-clear-traffic', listener);

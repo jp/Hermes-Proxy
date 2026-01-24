@@ -10,11 +10,13 @@ const https = require('https');
 const HISTORY_LIMIT = 500;
 const PROXY_PORT_START = 8000;
 const RULE_TIMEOUT_MS = 30000;
+const RULES_FILENAME = 'rules.json';
 const entries = [];
 let rules = [];
 let caCertPath = null;
 let proxyInstance;
 let proxyPort = PROXY_PORT_START;
+let rulesFilePath = null;
 
 const CA_SUBJECT = [
   { name: 'commonName', value: 'HermesProxyCA' },
@@ -200,6 +202,23 @@ const normalizeRule = (rule, index) => {
 
 const normalizeRules = (list) => (Array.isArray(list) ? list : []).map(normalizeRule);
 
+const getDefaultRulesPath = () => path.join(app.getPath('userData'), RULES_FILENAME);
+
+const persistRules = (rulesList, targetPath) => {
+  const filePath = targetPath || rulesFilePath || getDefaultRulesPath();
+  const payload = JSON.stringify({ rules: rulesList }, null, 2);
+  fs.writeFileSync(filePath, payload, 'utf-8');
+  rulesFilePath = filePath;
+};
+
+const loadRulesFromFile = (filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  const payload = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const loadedRules = normalizeRules(payload?.rules || payload);
+  rulesFilePath = filePath;
+  return loadedRules;
+};
+
 const toLower = (value) => String(value || '').toLowerCase();
 
 const matchesSubstringList = (value, list) => {
@@ -224,6 +243,7 @@ const matchRule = (rule, requestInfo) => {
   if (!rule.enabled) return false;
   if (rule.match.methods.length) {
     const method = String(requestInfo.method || '').toUpperCase();
+    if (rule.match.methods.includes('*')) return true;
     if (!rule.match.methods.includes(method)) return false;
   }
   if (!matchesSubstringList(requestInfo.host, rule.match.hosts)) return false;
@@ -581,6 +601,14 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
+  try {
+    const defaultRulesPath = getDefaultRulesPath();
+    if (fs.existsSync(defaultRulesPath)) {
+      rules = loadRulesFromFile(defaultRulesPath);
+    }
+  } catch (err) {
+    console.error('Failed to load rules', err);
+  }
   startMitmProxy().catch((err) => {
     console.error('Failed to start MITM proxy', err);
   });
@@ -610,7 +638,46 @@ ipcMain.handle('proxy:get-ca', () => ({ caCertPath }));
 ipcMain.handle('proxy:get-rules', () => rules);
 ipcMain.handle('proxy:set-rules', (_event, nextRules) => {
   rules = normalizeRules(nextRules);
+  try {
+    persistRules(rules);
+  } catch (err) {
+    console.error('Failed to persist rules', err);
+  }
   return rules;
+});
+ipcMain.handle('proxy:save-rules', async () => {
+  const savePath = await dialog.showSaveDialog({
+    title: 'Save rules',
+    defaultPath: rulesFilePath || getDefaultRulesPath(),
+    filters: [{ name: 'Rules', extensions: ['json'] }],
+  });
+  if (savePath.canceled || !savePath.filePath) return false;
+  try {
+    persistRules(rules, savePath.filePath);
+    return true;
+  } catch (err) {
+    console.error('Failed to save rules', err);
+    return false;
+  }
+});
+ipcMain.handle('proxy:load-rules', async () => {
+  const openPath = await dialog.showOpenDialog({
+    title: 'Load rules',
+    defaultPath: rulesFilePath || getDefaultRulesPath(),
+    filters: [{ name: 'Rules', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (openPath.canceled || !openPath.filePaths?.length) return false;
+  try {
+    rules = loadRulesFromFile(openPath.filePaths[0]);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('proxy-rules-updated', rules);
+    });
+    return true;
+  } catch (err) {
+    console.error('Failed to load rules', err);
+    return false;
+  }
 });
 ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
   const entryId = typeof payload === 'string' ? payload : payload?.entryId;

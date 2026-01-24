@@ -146,6 +146,27 @@ body {
   gap: 0.6rem;
 }
 
+.rule-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+.rule-section-header .kv-title {
+  line-height: 1;
+  padding-top: 0.05rem;
+}
+
+.rule-action-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+}
+
 .rule-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -181,6 +202,26 @@ body {
   color: #e2e8f0;
   padding: 0.45rem 0.5rem;
   font-size: 0.85rem;
+}
+
+.rule-methods-select {
+  min-height: 40px;
+}
+
+.rule-action-select {
+  min-width: 220px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.rule-action-select:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.55);
+  border-color: rgba(59, 130, 246, 0.7);
 }
 
 .rule-checkbox {
@@ -482,6 +523,12 @@ tbody tr.selected {
   background: transparent;
   padding: 0;
   flex: 1;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .detail-title {
