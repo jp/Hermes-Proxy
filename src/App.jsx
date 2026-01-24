@@ -1322,6 +1322,7 @@ function App() {
                           <option value="none">None</option>
                           <option value="delay">Wait before continuing</option>
                           <option value="overrideHeaders">Override headers</option>
+                          <option value="close">Close the connection</option>
                         </select>
                       </label>
                     </div>

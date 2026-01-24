@@ -178,7 +178,7 @@ const normalizeRule = (rule, index) => {
     : Array.isArray(actions.overrideHeaders) && actions.overrideHeaders.length
       ? 'overrideHeaders'
       : 'none';
-  const normalizedType = ['none', 'delay', 'overrideHeaders'].includes(actions.type)
+  const normalizedType = ['none', 'delay', 'overrideHeaders', 'close'].includes(actions.type)
     ? actions.type
     : legacyType;
 
@@ -490,6 +490,24 @@ const startMitmProxy = async () => {
 
       if (activeRule.actions.type === 'delay') {
         delayMs = activeRule.actions.delayMs;
+      }
+
+      if (activeRule.actions.type === 'close') {
+        ctx.clientToProxyRequest.socket.destroy();
+        broadcastEntry(
+          buildEntry({
+            target,
+            request: ctx.clientToProxyRequest,
+            status: null,
+            responseHeaders: {},
+            requestBody: Buffer.alloc(0),
+            responseBody: Buffer.alloc(0),
+            error: 'Connection closed by rule',
+            responseHttpVersion: null,
+            durationMs: 0,
+          })
+        );
+        return;
       }
     }
 
