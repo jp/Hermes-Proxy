@@ -1232,7 +1232,7 @@ function App() {
                       <div className="rule-subheader">
                         <span>Header matchers</span>
                         <button
-                          className="icon-btn"
+                          className="icon-btn rule-add-btn"
                           type="button"
                           aria-label="Add header matcher"
                           title="Add header matcher"
@@ -1327,30 +1327,30 @@ function App() {
                       </label>
                     </div>
                     <div className="rule-grid">
-                        {rule.actions.type === 'delay' && (
-                          <label className="rule-field">
-                            <span>Wait (ms)</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={rule.actions.delayMs}
-                              onChange={(event) => {
-                                const delayMs = Number(event.target.value || 0);
-                                handleUpdateRule(index, (current) => ({
-                                  ...current,
-                                  actions: { ...current.actions, delayMs },
-                                }));
-                              }}
-                            />
-                          </label>
-                        )}
-                      </div>
+                      {rule.actions.type === 'delay' && (
+                        <label className="rule-field">
+                          <span>Wait (ms)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            value={rule.actions.delayMs}
+                            onChange={(event) => {
+                              const delayMs = Number(event.target.value || 0);
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: { ...current.actions, delayMs },
+                              }));
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
                     {rule.actions.type === 'overrideHeaders' && (
                       <div className="rule-subsection">
                         <div className="rule-subheader">
                           <span>Override headers</span>
                           <button
-                            className="icon-btn"
+                            className="icon-btn rule-add-btn"
                             type="button"
                             aria-label="Add override header"
                             title="Add override header"
