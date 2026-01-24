@@ -9,7 +9,9 @@ const https = require('https');
 
 const HISTORY_LIMIT = 500;
 const PROXY_PORT_START = 8000;
+const RULE_TIMEOUT_MS = 30000;
 const entries = [];
+let rules = [];
 let caCertPath = null;
 let proxyInstance;
 let proxyPort = PROXY_PORT_START;
@@ -155,6 +157,92 @@ const normalizeHeaderValue = (value) => {
   return String(value);
 };
 
+const normalizeRule = (rule, index) => {
+  const match = rule?.match || {};
+  const actions = rule?.actions || {};
+  const normalizeList = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  const normalizeHeaderList = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((item) => ({
+        name: String(item?.name || '').trim(),
+        value: String(item?.value || '').trim(),
+      }))
+      .filter((item) => item.name || item.value);
+  const legacyType = actions.delayMs
+    ? 'delay'
+    : Array.isArray(actions.overrideHeaders) && actions.overrideHeaders.length
+      ? 'overrideHeaders'
+      : 'none';
+  const normalizedType = ['none', 'delay', 'overrideHeaders'].includes(actions.type)
+    ? actions.type
+    : legacyType;
+
+  return {
+    id: rule?.id || `rule-${Date.now()}-${index}`,
+    name: String(rule?.name || `Rule ${index + 1}`),
+    enabled: rule?.enabled !== false,
+    match: {
+      methods: normalizeList(match.methods).map((value) => value.toUpperCase()),
+      hosts: normalizeList(match.hosts),
+      urls: normalizeList(match.urls),
+      headers: normalizeHeaderList(match.headers),
+    },
+    actions: {
+      type: normalizedType,
+      delayMs: Number.isFinite(Number(actions.delayMs)) ? Math.max(0, Number(actions.delayMs)) : 0,
+      overrideHeaders: normalizeHeaderList(actions.overrideHeaders),
+    },
+  };
+};
+
+const normalizeRules = (list) => (Array.isArray(list) ? list : []).map(normalizeRule);
+
+const toLower = (value) => String(value || '').toLowerCase();
+
+const matchesSubstringList = (value, list) => {
+  if (!list.length) return true;
+  const haystack = toLower(value);
+  return list.some((pattern) => haystack.includes(toLower(pattern)));
+};
+
+const headerMatchesRule = (headers, matcher) => {
+  const nameNeedle = toLower(matcher.name);
+  const valueNeedle = toLower(matcher.value);
+  return Object.entries(headers).some(([name, value]) => {
+    const headerName = toLower(name);
+    const headerValue = toLower(normalizeHeaderValue(value));
+    if (nameNeedle && !headerName.includes(nameNeedle)) return false;
+    if (valueNeedle && !headerValue.includes(valueNeedle)) return false;
+    return true;
+  });
+};
+
+const matchRule = (rule, requestInfo) => {
+  if (!rule.enabled) return false;
+  if (rule.match.methods.length) {
+    const method = String(requestInfo.method || '').toUpperCase();
+    if (!rule.match.methods.includes(method)) return false;
+  }
+  if (!matchesSubstringList(requestInfo.host, rule.match.hosts)) return false;
+  if (!matchesSubstringList(requestInfo.url, rule.match.urls)) return false;
+  if (rule.match.headers.length) {
+    const headers = requestInfo.headers || {};
+    const matchesAll = rule.match.headers.every((matcher) => headerMatchesRule(headers, matcher));
+    if (!matchesAll) return false;
+  }
+  return true;
+};
+
+const buildRuleRequestInfo = (ctx, targetUrl) => ({
+  method: ctx.clientToProxyRequest?.method || '',
+  host: targetUrl?.host || '',
+  url: targetUrl?.toString?.() || '',
+  headers: ctx.clientToProxyRequest?.headers || {},
+});
+
 const getHeaderValue = (headers, name) => {
   if (!headers) return '';
   const match = Object.keys(headers).find((key) => key.toLowerCase() === name);
@@ -271,6 +359,7 @@ const buildEntry = ({
   error,
   responseHttpVersion,
   durationMs,
+  requestHeadersOverride,
 }) => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   timestamp: new Date().toISOString(),
@@ -282,7 +371,10 @@ const buildEntry = ({
   host: target.host || target.hostname,
   path: target.pathname,
   query: target.search,
-  requestHeaders: request.headers || {},
+  requestHeaders:
+    requestHeadersOverride?.length > 0
+      ? applyHeaderOverrides(request.headers || {}, requestHeadersOverride)
+      : request.headers || {},
   responseHeaders: responseHeaders || {},
   requestBody: bodyToText(requestBody),
   requestDecodedBody: (() => {
@@ -350,6 +442,37 @@ const startMitmProxy = async () => {
 
   proxy.onRequest((ctx, callback) => {
     ctx._startAt = Date.now();
+    const target = toTargetUrl(ctx);
+    const requestInfo = buildRuleRequestInfo(ctx, target);
+    const activeRule = rules.find((rule) => matchRule(rule, requestInfo));
+    let delayMs = 0;
+    if (activeRule) {
+      if (activeRule.actions.type === 'overrideHeaders' && activeRule.actions.overrideHeaders.length) {
+        const overrideHeaders = activeRule.actions.overrideHeaders;
+        ctx.clientToProxyRequest.headers = applyHeaderOverrides(ctx.clientToProxyRequest.headers, overrideHeaders);
+        if (ctx.proxyToServerRequestOptions?.headers) {
+          ctx.proxyToServerRequestOptions.headers = applyHeaderOverrides(
+            ctx.proxyToServerRequestOptions.headers,
+            overrideHeaders
+          );
+        }
+        ctx._overrideHeaders = activeRule.actions.overrideHeaders;
+        ctx.onRequestHeaders((ctxReq, cb) => {
+          if (ctxReq.proxyToServerRequestOptions?.headers) {
+            ctxReq.proxyToServerRequestOptions.headers = applyHeaderOverrides(
+              ctxReq.proxyToServerRequestOptions.headers,
+              overrideHeaders
+            );
+          }
+          cb();
+        });
+      }
+
+      if (activeRule.actions.type === 'delay') {
+        delayMs = activeRule.actions.delayMs;
+      }
+    }
+
     const requestChunks = [];
     ctx.onRequestData((_, chunk, cb) => {
       requestChunks.push(chunk);
@@ -366,11 +489,11 @@ const startMitmProxy = async () => {
       cb(null, chunk);
     });
     ctx.onResponseEnd((ctxRes, cb) => {
-      const target = toTargetUrl(ctxRes);
       broadcastEntry(
         buildEntry({
-          target,
+          target: toTargetUrl(ctxRes),
           request: ctxRes.clientToProxyRequest,
+          requestHeadersOverride: ctxRes._overrideHeaders,
           status: ctxRes.serverToProxyResponse?.statusCode,
           responseHeaders: ctxRes.serverToProxyResponse?.headers,
           requestBody: ctxRes._requestBody || Buffer.alloc(0),
@@ -382,6 +505,10 @@ const startMitmProxy = async () => {
       cb();
     });
 
+    if (delayMs > 0) {
+      setTimeout(() => callback(), delayMs);
+      return;
+    }
     return callback();
   });
 
@@ -480,6 +607,11 @@ ipcMain.handle('proxy:get-port', () => proxyPort);
 
 ipcMain.handle('proxy:get-history', () => entries);
 ipcMain.handle('proxy:get-ca', () => ({ caCertPath }));
+ipcMain.handle('proxy:get-rules', () => rules);
+ipcMain.handle('proxy:set-rules', (_event, nextRules) => {
+  rules = normalizeRules(nextRules);
+  return rules;
+});
 ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
   const entryId = typeof payload === 'string' ? payload : payload?.entryId;
   const entry = entries.find((e) => e.id === entryId);
@@ -567,6 +699,21 @@ ipcMain.handle('proxy:export-ca-certificate', async () => {
 ipcMain.handle('proxy:traffic-context-menu', async (event, entryId) => {
   const entry = entries.find((e) => e.id === entryId);
   const menu = Menu.buildFromTemplate([
+    {
+      label: 'Add matching rule',
+      enabled: Boolean(entry),
+      click: () => {
+        if (!entry) return;
+        const win = BrowserWindow.fromWebContents(event.sender);
+        win?.webContents.send('proxy-add-rule', {
+          method: entry.method,
+          host: entry.host,
+          url: `${entry.path || ''}${entry.query || ''}`,
+          headers: entry.requestHeaders || {},
+        });
+      },
+    },
+    { type: 'separator' },
     {
       label: 'Copy',
       enabled: Boolean(entry),
@@ -715,6 +862,21 @@ const exportAllEntriesAsHar = async () => {
 const buildEntryUrl = (entry) => {
   const protocol = entry.protocol?.replace(':', '') || 'http';
   return `${protocol}://${entry.host}${entry.path}${entry.query || ''}`;
+};
+
+const applyHeaderOverrides = (headers, overrides) => {
+  const next = { ...(headers || {}) };
+  overrides.forEach((override) => {
+    if (!override.name) return;
+    const lower = override.name.toLowerCase();
+    Object.keys(next).forEach((key) => {
+      if (key.toLowerCase() === lower) {
+        delete next[key];
+      }
+    });
+    next[override.name] = override.value ?? '';
+  });
+  return next;
 };
 
 const sanitizeHeaders = (headers = {}, options = {}) => {

@@ -26,6 +26,34 @@ const buildEntryUrl = (entry) => {
 
 const headersToList = (headers = {}) => Object.entries(headers);
 
+const createRule = () => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  name: 'New rule',
+  enabled: true,
+  match: {
+    methods: [],
+    hosts: [],
+    urls: [],
+    headers: [],
+  },
+  actions: {
+    type: 'none',
+    delayMs: 0,
+    overrideHeaders: [],
+  },
+});
+
+const parseListInput = (value, options = {}) => {
+  const entries = String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (options.uppercase) {
+    return entries.map((item) => item.toUpperCase());
+  }
+  return entries;
+};
+
 const bufferPreview = (text = '') => (text.length > 4000 ? `${text.slice(0, 4000)}\n…truncated…` : text);
 
 const formatBytes = (bytes) => {
@@ -193,17 +221,20 @@ function App() {
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
   const [requestHeadersDraft, setRequestHeadersDraft] = useState([]);
+  const [rules, setRules] = useState([]);
   const [proxyPort, setProxyPort] = useState(8000);
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
   const tableRef = useRef(null);
   const splitRef = useRef(null);
   const resizeRef = useRef(null);
+  const rulesReadyRef = useRef(false);
 
   useEffect(() => {
     let cleanup;
     const api = window.electronAPI;
     let offClearTraffic;
+    let offAddRule;
 
     if (api?.getHistory) {
       api.getHistory().then((history) => {
@@ -232,11 +263,48 @@ function App() {
       });
     }
 
+    if (api?.onAddRule) {
+      offAddRule = api.onAddRule((payload) => {
+        if (!payload) return;
+        const headersList = Object.entries(payload.headers || {}).map(([name, value]) => ({
+          name,
+          value: Array.isArray(value) ? value.join(', ') : String(value ?? ''),
+        }));
+        setRules((prev) => [
+          ...prev,
+          {
+            ...createRule(),
+            name: `Rule for ${payload.method || 'ANY'} ${payload.host || ''}`,
+            match: {
+              methods: payload.method ? [payload.method] : [],
+              hosts: payload.host ? [payload.host] : [],
+              urls: payload.url ? [payload.url] : [],
+              headers: headersList,
+            },
+          },
+        ]);
+        setActiveTab('rules');
+      });
+    }
+
+    if (api?.getRules) {
+      api.getRules().then((loadedRules) => {
+        setRules(Array.isArray(loadedRules) ? loadedRules : []);
+        rulesReadyRef.current = true;
+      });
+    }
+
     return () => {
       cleanup?.();
       offClearTraffic?.();
+      offAddRule?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!rulesReadyRef.current) return;
+    window.electronAPI?.setRules?.(rules);
+  }, [rules]);
 
   useLayoutEffect(() => {
     if (!autoScroll || activeTab !== 'intercept') return;
@@ -357,6 +425,22 @@ function App() {
   const handleClearTraffic = async () => {
     await window.electronAPI?.clearTraffic?.();
     setSelectedId(null);
+  };
+
+  const handleAddRule = () => {
+    setRules((prev) => [...prev, createRule()]);
+  };
+
+  const handleUpdateRule = (index, updater) => {
+    setRules((prev) => {
+      const next = [...prev];
+      next[index] = updater(next[index]);
+      return next;
+    });
+  };
+
+  const handleRemoveRule = (index) => {
+    setRules((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleHeaderValueChange = (event, index) => {
@@ -570,6 +654,15 @@ function App() {
             <i className="fa-solid fa-gear"></i>
           </span>
           <span className="label">Setup</span>
+        </button>
+        <button
+          className={`nav-item ${activeTab === 'rules' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rules')}
+        >
+          <span className="icon" aria-hidden="true">
+            <i className="fa-solid fa-arrow-down-1-9"></i>
+          </span>
+          <span className="label">Rules</span>
         </button>
       </aside>
 
@@ -990,6 +1083,297 @@ function App() {
                   CA location: <code>{caPath}</code>
                 </div>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'rules' && (
+        <div className="app single">
+          <section className="panel">
+            <div className="header">
+              <h1>Rules</h1>
+              <button className="export-btn" type="button" onClick={handleAddRule}>
+                Add rule
+              </button>
+            </div>
+            <div className="rules-list">
+              {rules.length === 0 && <div className="empty">No rules yet.</div>}
+              {rules.map((rule, index) => (
+                <div className="rule-card" key={rule.id}>
+                  <div className="rule-header">
+                    <input
+                      className="rule-name"
+                      type="text"
+                      value={rule.name}
+                      onChange={(event) =>
+                        handleUpdateRule(index, (current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                    <label className="rule-toggle">
+                      <input
+                        type="checkbox"
+                        checked={rule.enabled}
+                        onChange={(event) =>
+                          handleUpdateRule(index, (current) => ({
+                            ...current,
+                            enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      Enabled
+                    </label>
+                    <button
+                      className="icon-btn"
+                      type="button"
+                      aria-label="Remove rule"
+                      title="Remove rule"
+                      onClick={() => handleRemoveRule(index)}
+                    >
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                  </div>
+                  <div className="rule-section">
+                    <div className="kv-title">MATCH</div>
+                    <div className="rule-grid">
+                      <label className="rule-field">
+                        <span>Methods</span>
+                        <input
+                          type="text"
+                          value={rule.match.methods.join(', ')}
+                          onChange={(event) => {
+                            const methods = parseListInput(event.target.value, { uppercase: true });
+                            handleUpdateRule(index, (current) => ({
+                              ...current,
+                              match: { ...current.match, methods },
+                            }));
+                          }}
+                          placeholder="GET, POST"
+                        />
+                      </label>
+                      <label className="rule-field">
+                        <span>Hosts</span>
+                        <input
+                          type="text"
+                          value={rule.match.hosts.join(', ')}
+                          onChange={(event) => {
+                            const hosts = parseListInput(event.target.value);
+                            handleUpdateRule(index, (current) => ({
+                              ...current,
+                              match: { ...current.match, hosts },
+                            }));
+                          }}
+                          placeholder="api.example.com"
+                        />
+                      </label>
+                      <label className="rule-field">
+                        <span>URL contains</span>
+                        <input
+                          type="text"
+                          value={rule.match.urls.join(', ')}
+                          onChange={(event) => {
+                            const urls = parseListInput(event.target.value);
+                            handleUpdateRule(index, (current) => ({
+                              ...current,
+                              match: { ...current.match, urls },
+                            }));
+                          }}
+                          placeholder="/v1/orders"
+                        />
+                      </label>
+                    </div>
+                    <div className="rule-subsection">
+                      <div className="rule-subheader">
+                        <span>Header matchers</span>
+                        <button
+                          className="icon-btn"
+                          type="button"
+                          aria-label="Add header matcher"
+                          title="Add header matcher"
+                          onClick={() =>
+                            handleUpdateRule(index, (current) => ({
+                              ...current,
+                              match: {
+                                ...current.match,
+                                headers: [...current.match.headers, { name: '', value: '' }],
+                              },
+                            }))
+                          }
+                        >
+                          <i className="fa-solid fa-plus"></i>
+                        </button>
+                      </div>
+                      {rule.match.headers.length === 0 && <div className="empty">No header matchers</div>}
+                      {rule.match.headers.map((matcher, matcherIndex) => (
+                        <div className="headers-row rule-headers-row" key={`matcher-${matcherIndex}`}>
+                          <input
+                            className="header-input header-name-input"
+                            type="text"
+                            value={matcher.name}
+                            placeholder="Header name"
+                            onChange={(event) => {
+                              const headers = [...rule.match.headers];
+                              headers[matcherIndex] = { ...headers[matcherIndex], name: event.target.value };
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                match: { ...current.match, headers },
+                              }));
+                            }}
+                          />
+                          <input
+                            className="header-input header-value-input"
+                            type="text"
+                            value={matcher.value}
+                            placeholder="Header value"
+                            onChange={(event) => {
+                              const headers = [...rule.match.headers];
+                              headers[matcherIndex] = { ...headers[matcherIndex], value: event.target.value };
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                match: { ...current.match, headers },
+                              }));
+                            }}
+                          />
+                          <button
+                            className="icon-btn"
+                            type="button"
+                            aria-label="Remove header matcher"
+                            title="Remove header matcher"
+                            onClick={() => {
+                              const headers = rule.match.headers.filter((_, idx) => idx !== matcherIndex);
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                match: { ...current.match, headers },
+                              }));
+                            }}
+                          >
+                            <i className="fa-solid fa-xmark"></i>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                    <div className="rule-section">
+                      <div className="kv-title">ACTIONS</div>
+                      <div className="rule-grid">
+                        <label className="rule-field">
+                          <span>Action</span>
+                          <select
+                            value={rule.actions.type}
+                            onChange={(event) => {
+                              const type = event.target.value;
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: {
+                                  ...current.actions,
+                                  type,
+                                  delayMs: type === 'delay' ? current.actions.delayMs : 0,
+                                  overrideHeaders: type === 'overrideHeaders' ? current.actions.overrideHeaders : [],
+                                },
+                              }));
+                            }}
+                          >
+                            <option value="none">None</option>
+                            <option value="delay">Wait before continuing</option>
+                            <option value="overrideHeaders">Override headers</option>
+                          </select>
+                        </label>
+                        {rule.actions.type === 'delay' && (
+                          <label className="rule-field">
+                            <span>Wait (ms)</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={rule.actions.delayMs}
+                              onChange={(event) => {
+                                const delayMs = Number(event.target.value || 0);
+                                handleUpdateRule(index, (current) => ({
+                                  ...current,
+                                  actions: { ...current.actions, delayMs },
+                                }));
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    {rule.actions.type === 'overrideHeaders' && (
+                      <div className="rule-subsection">
+                        <div className="rule-subheader">
+                          <span>Override headers</span>
+                          <button
+                            className="icon-btn"
+                            type="button"
+                            aria-label="Add override header"
+                            title="Add override header"
+                            onClick={() =>
+                              handleUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: {
+                                  ...current.actions,
+                                  overrideHeaders: [...current.actions.overrideHeaders, { name: '', value: '' }],
+                                },
+                              }))
+                            }
+                          >
+                            <i className="fa-solid fa-plus"></i>
+                          </button>
+                        </div>
+                        {rule.actions.overrideHeaders.length === 0 && <div className="empty">No overrides</div>}
+                        {rule.actions.overrideHeaders.map((override, overrideIndex) => (
+                          <div className="headers-row rule-headers-row" key={`override-${overrideIndex}`}>
+                            <input
+                              className="header-input header-name-input"
+                              type="text"
+                              value={override.name}
+                              placeholder="Header name"
+                              onChange={(event) => {
+                                const overrides = [...rule.actions.overrideHeaders];
+                                overrides[overrideIndex] = { ...overrides[overrideIndex], name: event.target.value };
+                                handleUpdateRule(index, (current) => ({
+                                  ...current,
+                                  actions: { ...current.actions, overrideHeaders: overrides },
+                                }));
+                              }}
+                            />
+                            <input
+                              className="header-input header-value-input"
+                              type="text"
+                              value={override.value}
+                              placeholder="Header value"
+                              onChange={(event) => {
+                                const overrides = [...rule.actions.overrideHeaders];
+                                overrides[overrideIndex] = { ...overrides[overrideIndex], value: event.target.value };
+                                handleUpdateRule(index, (current) => ({
+                                  ...current,
+                                  actions: { ...current.actions, overrideHeaders: overrides },
+                                }));
+                              }}
+                            />
+                            <button
+                              className="icon-btn"
+                              type="button"
+                              aria-label="Remove override header"
+                              title="Remove override header"
+                              onClick={() => {
+                                const overrides = rule.actions.overrideHeaders.filter((_, idx) => idx !== overrideIndex);
+                                handleUpdateRule(index, (current) => ({
+                                  ...current,
+                                  actions: { ...current.actions, overrideHeaders: overrides },
+                                }));
+                              }}
+                            >
+                              <i className="fa-solid fa-xmark"></i>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         </div>

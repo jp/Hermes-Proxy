@@ -6,10 +6,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('proxy-entry', listener);
     return () => ipcRenderer.removeListener('proxy-entry', listener);
   },
+  getRules: () => ipcRenderer.invoke('proxy:get-rules'),
+  setRules: (rules) => ipcRenderer.invoke('proxy:set-rules', rules),
   onClearTraffic: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('proxy-clear-traffic', listener);
     return () => ipcRenderer.removeListener('proxy-clear-traffic', listener);
+  },
+  onAddRule: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('proxy-add-rule', listener);
+    return () => ipcRenderer.removeListener('proxy-add-rule', listener);
   },
   onCaReady: (callback) => {
     const listener = (_event, caPath) => callback(caPath);
