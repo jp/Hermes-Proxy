@@ -522,10 +522,18 @@ function App() {
     if (!selected) return '';
     return getHeaderValue(selected.responseHeaders || {}, 'content-type');
   }, [selected]);
+  const requestContentType = useMemo(() => {
+    if (!selected) return '';
+    return getHeaderValue(selected.requestHeaders || {}, 'content-type');
+  }, [selected]);
   const isHtmlResponse = useMemo(() => {
     if (!selected?.responseBody) return false;
     return isHtmlContent(responseContentType) || isLikelyHtmlBody(selected.responseBody);
   }, [selected, responseContentType]);
+  const isHtmlRequest = useMemo(() => {
+    if (!selected?.requestBody) return false;
+    return isHtmlContent(requestContentType) || isLikelyHtmlBody(selected.requestBody);
+  }, [selected, requestContentType]);
   const isPrettyPrintableResponse = useMemo(() => {
     if (!selected?.responseBody) return false;
     return isJsonContent(responseContentType) || isHtmlResponse;
@@ -538,6 +546,12 @@ function App() {
     if (!selected) return '';
     return selected.requestDecodedBody || selected.requestBody || '';
   }, [selected]);
+  const isPrettyPrintableRequest = useMemo(() => {
+    if (!selected?.requestBody) return false;
+    if (isJsonContent(requestContentType)) return true;
+    if (isHtmlRequest) return true;
+    return Boolean(tryPrettyJson(requestDisplayBody));
+  }, [selected, requestContentType, isHtmlRequest, requestDisplayBody]);
   const responsePrettyBody = useMemo(() => {
     if (!responseDisplayBody) return '';
     if (!prettyPrintResponse) return responseDisplayBody;
@@ -550,12 +564,29 @@ function App() {
     }
     return responseDisplayBody;
   }, [responseDisplayBody, prettyPrintResponse, responseContentType, isHtmlResponse]);
+  const requestPrettyBody = useMemo(() => {
+    if (!requestDisplayBody) return '';
+    const prettyJson = tryPrettyJson(requestDisplayBody);
+    if (isJsonContent(requestContentType) || prettyJson) {
+      return prettyJson ?? requestDisplayBody;
+    }
+    if (isHtmlRequest) {
+      return prettyPrintHtml(requestDisplayBody);
+    }
+    return requestDisplayBody;
+  }, [requestDisplayBody, requestContentType, isHtmlRequest]);
   const responseBodyText = useMemo(() => {
     if (isPrettyPrintableResponse && prettyPrintResponse) {
       return responsePrettyBody;
     }
     return bufferPreview(responsePrettyBody);
   }, [responsePrettyBody, responseContentType, prettyPrintResponse, isPrettyPrintableResponse]);
+  const requestBodyText = useMemo(() => {
+    if (isPrettyPrintableRequest) {
+      return requestPrettyBody;
+    }
+    return bufferPreview(requestPrettyBody);
+  }, [requestPrettyBody, isPrettyPrintableRequest]);
   const responseBodySaveText = useMemo(() => {
     if (!responseDisplayBody) return '';
     if (isPrettyPrintableResponse && prettyPrintResponse) {
@@ -818,12 +849,12 @@ function App() {
                             ))}
                           </div>
                         </div>
-                        {requestDisplayBody && requestDisplayBody.length > 0 && (
-                          <div className="plain-field" aria-label="Request body">
-                            <div className="kv-title">BODY</div>
-                            <pre className="plain-pre">{bufferPreview(requestDisplayBody)}</pre>
-                          </div>
-                        )}
+                      {requestDisplayBody && requestDisplayBody.length > 0 && (
+                        <div className="plain-field" aria-label="Request body">
+                          <div className="kv-title">BODY</div>
+                          <pre className="plain-pre">{requestBodyText}</pre>
+                        </div>
+                      )}
                       </div>
                     )}
                   </div>
