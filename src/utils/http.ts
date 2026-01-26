@@ -1,32 +1,34 @@
-const statusTone = (status) => {
+import type { HeaderMap, HeaderValue } from '../types';
+
+const statusTone = (status?: number) => {
   if (!status) return 'status-warn';
   if (status >= 500) return 'status-bad';
   if (status >= 400) return 'status-warn';
   return 'status-ok';
 };
 
-const headersToText = (headers = {}) =>
+const headersToText = (headers: HeaderMap = {}) =>
   Object.entries(headers)
     .map(([key, value]) => `${key}: ${value}`)
     .join('\n');
 
-const headersToList = (headers = {}) => Object.entries(headers);
+const headersToList = (headers: HeaderMap = {}) => Object.entries(headers);
 
-const buildEntryUrl = (entry) => {
+const buildEntryUrl = (entry?: { protocol?: string; host?: string; path?: string; query?: string }) => {
   const protocol = entry?.protocol?.replace(':', '') || 'http';
   if (!entry) return '';
-  return `${protocol}://${entry.host}${entry.path}${entry.query || ''}`;
+  return `${protocol}://${entry.host ?? ''}${entry.path ?? ''}${entry.query || ''}`;
 };
 
-const getHeaderValue = (headers, name) => {
+const getHeaderValue = (headers: HeaderMap | undefined, name: string) => {
   if (!headers) return '';
   const match = Object.keys(headers).find((key) => key.toLowerCase() === name);
-  const value = headers?.[match];
+  const value = match ? (headers?.[match] as HeaderValue) : undefined;
   if (Array.isArray(value)) return value.join(', ');
-  return value ? String(value) : '';
+  return value !== null && typeof value !== 'undefined' ? String(value) : '';
 };
 
-const parseContentLength = (headers) => {
+const parseContentLength = (headers: HeaderMap | undefined) => {
   const value = getHeaderValue(headers, 'content-length');
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
@@ -55,7 +57,7 @@ const isLikelyHtmlBody = (text = '') => {
   return snippet.startsWith('<!doctype html') || snippet.startsWith('<html') || snippet.includes('<html');
 };
 
-const summarizeCacheability = (headers = {}) => {
+const summarizeCacheability = (headers: HeaderMap = {}) => {
   const cacheControl = getHeaderValue(headers, 'cache-control');
   const pragma = getHeaderValue(headers, 'pragma');
   const expires = getHeaderValue(headers, 'expires');

@@ -22,12 +22,13 @@ import {
   summarizeCacheability,
 } from './utils/http';
 import { createRule } from './utils/rules';
+import type { PerformanceData, ProxyEntry, RequestHeaderDraft, Rule } from './types';
 
 const MAX_ENTRIES = 20000;
 
 function App() {
-  const [entries, setEntries] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [entries, setEntries] = useState<ProxyEntry[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [caPath, setCaPath] = useState('');
   const [activeTab, setActiveTab] = useState('intercept');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -38,14 +39,14 @@ function App() {
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
-  const [requestHeadersDraft, setRequestHeadersDraft] = useState([]);
-  const [rules, setRules] = useState([]);
+  const [requestHeadersDraft, setRequestHeadersDraft] = useState<RequestHeaderDraft[]>([]);
+  const [rules, setRules] = useState<Rule[]>([]);
   const [proxyPort, setProxyPort] = useState(8000);
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
-  const tableRef = useRef(null);
-  const splitRef = useRef(null);
-  const resizeRef = useRef(null);
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number; containerWidth: number } | null>(null);
   const rulesReadyRef = useRef(false);
 
   useEffect(() => {
@@ -197,7 +198,7 @@ function App() {
 
   useEffect(() => {
     if (!isResizing) return;
-    const onMove = (event) => {
+    const onMove = (event: MouseEvent) => {
       const state = resizeRef.current;
       if (!state) return;
       const delta = event.clientX - state.startX;
@@ -218,7 +219,7 @@ function App() {
     };
   }, [isResizing]);
 
-  const handleSplitterMouseDown = (event) => {
+  const handleSplitterMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const container = splitRef.current;
     if (!container) return;
@@ -277,23 +278,25 @@ function App() {
     setRules((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  const handleHeaderNameChange = (index, value) => {
+  const handleHeaderNameChange = (index: number, value: string) => {
     const next = [...requestHeadersDraft];
     next[index] = { ...next[index], name: value };
     setRequestHeadersDraft(next);
   };
 
-  const handleHeaderValueChange = (index, value, element) => {
+  const handleHeaderValueChange = (index: number, value: string, element: HTMLTextAreaElement) => {
     const next = [...requestHeadersDraft];
     next[index] = { ...next[index], value };
     setRequestHeadersDraft(next);
     resizeTextarea(element);
   };
 
-  const selected = useMemo(() => entries.find((e) => e.id === selectedId), [entries, selectedId]);
+  const selected = useMemo(() => entries.find((e) => e.id === selectedId) ?? null, [entries, selectedId]);
 
   useEffect(() => {
-    document.querySelectorAll('.header-value-input').forEach((el) => resizeTextarea(el));
+    document
+      .querySelectorAll('.header-value-input')
+      .forEach((el) => resizeTextarea(el as HTMLTextAreaElement));
   }, [requestHeadersDraft]);
 
   useEffect(() => {
@@ -438,7 +441,7 @@ function App() {
       defaultPath: `response-body.${extension}`,
     });
   };
-  const performanceData = useMemo(() => {
+  const performanceData = useMemo<PerformanceData | null>(() => {
     if (!selected) return null;
     const responseHeaders = selected.responseHeaders || {};
     const requestHeaders = selected.requestHeaders || {};

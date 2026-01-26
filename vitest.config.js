@@ -6,8 +6,8 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.js'],
     coverage: {
       reporter: ['text', 'lcov'],
-      include: ['src/**/*.{js,jsx}'],
-      exclude: ['src/main.jsx'],
+      include: ['src/**/*.{js,jsx,ts,tsx}'],
+      exclude: ['src/main.tsx'],
     },
   },
 });

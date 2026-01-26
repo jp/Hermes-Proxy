@@ -1,6 +1,8 @@
-const HTTP_METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'];
+import type { Rule } from '../types';
 
-const createRule = () => ({
+const HTTP_METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'] as const;
+
+const createRule = (): Rule => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   name: 'New rule',
   enabled: true,
@@ -17,7 +19,7 @@ const createRule = () => ({
   },
 });
 
-const parseListInput = (value, options = {}) => {
+const parseListInput = (value: string, options: { uppercase?: boolean } = {}) => {
   const entries = String(value || '')
     .split(',')
     .map((item) => item.trim())

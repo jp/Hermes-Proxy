@@ -1,6 +1,54 @@
 import React from 'react';
 import { formatBytes, formatMs } from '../../utils/format';
 import { headersToList, statusTone } from '../../utils/http';
+import type { PerformanceData, ProxyEntry, RequestHeaderDraft } from '../../types';
+
+type InterceptViewProps = {
+  entries: ProxyEntry[];
+  filteredEntries: ProxyEntry[];
+  selected: ProxyEntry | null;
+  selectedId: string | null;
+  onSelectEntry: (id: string) => void;
+  onShowContextMenu: (entryId: string) => void;
+  proxyPort: number;
+  isResizing: boolean;
+  splitPercent: number;
+  splitRef: React.RefObject<HTMLDivElement>;
+  tableRef: React.RefObject<HTMLDivElement>;
+  onTableScroll: () => void;
+  onSplitterMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
+  requestCollapsed: boolean;
+  responseCollapsed: boolean;
+  responseBodyCollapsed: boolean;
+  performanceCollapsed: boolean;
+  onToggleRequest: () => void;
+  onToggleResponse: () => void;
+  onToggleResponseBody: () => void;
+  onTogglePerformance: () => void;
+  requestLine: string;
+  responseLine: string;
+  requestUrlDraft: string;
+  onRequestUrlChange: (value: string) => void;
+  requestHeadersDraft: RequestHeaderDraft[];
+  onRequestHeaderNameChange: (index: number, value: string) => void;
+  onRequestHeaderValueChange: (index: number, value: string, element: HTMLTextAreaElement) => void;
+  requestDisplayBody: string;
+  requestBodyText: string;
+  responseBodyText: string;
+  prismLanguage: string | null;
+  prismHtml: string;
+  isPrettyPrintableResponse: boolean;
+  prettyPrintResponse: boolean;
+  onPrettyPrintResponseChange: (value: boolean) => void;
+  onSaveResponseBody: () => void;
+  performanceData: PerformanceData | null;
+  filterText: string;
+  onFilterTextChange: (value: string) => void;
+  onExportAllHar: () => void;
+  onImportHar: () => void;
+  onClearTraffic: () => void;
+  onRepeatRequest: () => void;
+};
 
 function InterceptView({
   entries,
@@ -47,7 +95,7 @@ function InterceptView({
   onImportHar,
   onClearTraffic,
   onRepeatRequest,
-}) {
+}: InterceptViewProps) {
   return (
     <div className="app intercept">
       <div
@@ -162,13 +210,15 @@ function InterceptView({
                               className="header-input header-name-input"
                               type="text"
                               value={header.name}
-                              onChange={(event) => onRequestHeaderNameChange(index, event.target.value)}
+                              onChange={(event) => onRequestHeaderNameChange(index, event.currentTarget.value)}
                             />
                             <textarea
                               className="header-input header-value-input"
                               rows={1}
                               value={header.value}
-                              onChange={(event) => onRequestHeaderValueChange(index, event.target.value, event.target)}
+                              onChange={(event) =>
+                                onRequestHeaderValueChange(index, event.currentTarget.value, event.currentTarget)
+                              }
                             />
                           </div>
                         ))}

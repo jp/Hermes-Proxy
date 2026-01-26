@@ -1,5 +1,15 @@
 import React from 'react';
 import { HTTP_METHODS, parseListInput } from '../../utils/rules';
+import type { Rule } from '../../types';
+
+type RulesViewProps = {
+  rules: Rule[];
+  onAddRule: () => void;
+  onUpdateRule: (index: number, updater: (current: Rule) => Rule) => void;
+  onRemoveRule: (index: number) => void;
+  onSaveRules: () => void;
+  onLoadRules: () => void;
+};
 
 function RulesView({
   rules,
@@ -8,7 +18,7 @@ function RulesView({
   onRemoveRule,
   onSaveRules,
   onLoadRules,
-}) {
+}: RulesViewProps) {
   return (
     <div className="app single">
       <section className="panel">

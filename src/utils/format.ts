@@ -1,6 +1,6 @@
 const bufferPreview = (text = '') => (text.length > 4000 ? `${text.slice(0, 4000)}\n…truncated…` : text);
 
-const formatBytes = (bytes) => {
+const formatBytes = (bytes: number | null | undefined) => {
   if (bytes === null || typeof bytes === 'undefined') return '—';
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
@@ -9,6 +9,6 @@ const formatBytes = (bytes) => {
   return `${mb.toFixed(2)} MB`;
 };
 
-const formatMs = (ms) => (typeof ms === 'number' ? `${ms} ms` : '—');
+const formatMs = (ms: number | undefined) => (typeof ms === 'number' ? `${ms} ms` : '—');
 
 export { bufferPreview, formatBytes, formatMs };

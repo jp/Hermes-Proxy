@@ -1,6 +1,12 @@
 import React from 'react';
 
-function SetupView({ proxyPort, caPath, onExportCa }) {
+type SetupViewProps = {
+  proxyPort: number;
+  caPath: string;
+  onExportCa: () => void;
+};
+
+function SetupView({ proxyPort, caPath, onExportCa }: SetupViewProps) {
   return (
     <div className="app single">
       <section className="panel">

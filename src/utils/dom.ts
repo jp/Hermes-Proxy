@@ -1,4 +1,4 @@
-const resizeTextarea = (el) => {
+const resizeTextarea = (el: HTMLTextAreaElement | HTMLInputElement | null) => {
   if (!el) return;
   el.style.height = 'auto';
   const maxHeight = Number.parseFloat(window.getComputedStyle(el).maxHeight || '0');

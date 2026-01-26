@@ -1,7 +1,12 @@
 import React from 'react';
 import logo from '../../images/logo.png';
 
-function Sidebar({ activeTab, onTabChange }) {
+type SidebarProps = {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+};
+
+function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   return (
     <aside className="sidebar">
       <img className="brand-logo" src={logo} alt="Hermes Proxy logo" />

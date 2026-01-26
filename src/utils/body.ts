@@ -15,7 +15,7 @@ const HTML_VOID_TAGS = new Set([
   'wbr',
 ]);
 
-const tryPrettyJson = (text) => {
+const tryPrettyJson = (text: string) => {
   try {
     const parsed = JSON.parse(text);
     return JSON.stringify(parsed, null, 2);
