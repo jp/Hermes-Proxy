@@ -2,212 +2,28 @@ import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 're
 import Prism from 'prismjs';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-markup';
-import logo from './images/logo.png';
+import InterceptView from './features/traffic/InterceptView';
+import RulesView from './features/rules/RulesView';
+import SetupView from './features/setup/SetupView';
+import Sidebar from './features/sidebar/Sidebar';
+import { tryPrettyJson, prettyPrintHtml } from './utils/body';
+import { bufferPreview } from './utils/format';
+import { resizeTextarea } from './utils/dom';
+import {
+  buildEntryUrl,
+  getHeaderValue,
+  headersToList,
+  headersToText,
+  isCompressibleType,
+  isHtmlContent,
+  isJsonContent,
+  isLikelyHtmlBody,
+  parseContentLength,
+  summarizeCacheability,
+} from './utils/http';
+import { createRule } from './utils/rules';
 
 const MAX_ENTRIES = 20000;
-
-const statusTone = (status) => {
-  if (!status) return 'status-warn';
-  if (status >= 500) return 'status-bad';
-  if (status >= 400) return 'status-warn';
-  return 'status-ok';
-};
-
-const headersToText = (headers = {}) =>
-  Object.entries(headers)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join('\n');
-
-const buildEntryUrl = (entry) => {
-  const protocol = entry?.protocol?.replace(':', '') || 'http';
-  if (!entry) return '';
-  return `${protocol}://${entry.host}${entry.path}${entry.query || ''}`;
-};
-
-const headersToList = (headers = {}) => Object.entries(headers);
-
-const HTTP_METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'];
-
-const createRule = () => ({
-  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  name: 'New rule',
-  enabled: true,
-  match: {
-    methods: [],
-    hosts: [],
-    urls: [],
-    headers: [],
-  },
-  actions: {
-    type: 'none',
-    delayMs: 0,
-    overrideHeaders: [],
-  },
-});
-
-const parseListInput = (value, options = {}) => {
-  const entries = String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (options.uppercase) {
-    return entries.map((item) => item.toUpperCase());
-  }
-  return entries;
-};
-
-const bufferPreview = (text = '') => (text.length > 4000 ? `${text.slice(0, 4000)}\n…truncated…` : text);
-
-const formatBytes = (bytes) => {
-  if (bytes === null || typeof bytes === 'undefined') return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(2)} MB`;
-};
-
-const formatMs = (ms) => (typeof ms === 'number' ? `${ms} ms` : '—');
-
-const resizeTextarea = (el) => {
-  if (!el) return;
-  el.style.height = 'auto';
-  const maxHeight = Number.parseFloat(window.getComputedStyle(el).maxHeight || '0');
-  const clamped = maxHeight ? Math.min(el.scrollHeight, maxHeight) : el.scrollHeight;
-  el.style.height = `${clamped}px`;
-};
-
-const getHeaderValue = (headers, name) => {
-  if (!headers) return '';
-  const match = Object.keys(headers).find((key) => key.toLowerCase() === name);
-  const value = headers?.[match];
-  if (Array.isArray(value)) return value.join(', ');
-  return value ? String(value) : '';
-};
-
-const parseContentLength = (headers) => {
-  const value = getHeaderValue(headers, 'content-length');
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const isCompressibleType = (contentType = '') => {
-  const normalized = contentType.toLowerCase();
-  return (
-    normalized.includes('text/') ||
-    normalized.includes('json') ||
-    normalized.includes('javascript') ||
-    normalized.includes('xml') ||
-    normalized.includes('svg')
-  );
-};
-
-const isJsonContent = (contentType = '') => contentType.toLowerCase().includes('json');
-const isHtmlContent = (contentType = '') => {
-  const normalized = contentType.toLowerCase();
-  return normalized.includes('text/html') || normalized.includes('application/xhtml+xml');
-};
-
-const isLikelyHtmlBody = (text = '') => {
-  const snippet = text.trim().slice(0, 200).toLowerCase();
-  return snippet.startsWith('<!doctype html') || snippet.startsWith('<html') || snippet.includes('<html');
-};
-
-const HTML_VOID_TAGS = new Set([
-  'area',
-  'base',
-  'br',
-  'col',
-  'embed',
-  'hr',
-  'img',
-  'input',
-  'link',
-  'meta',
-  'param',
-  'source',
-  'track',
-  'wbr',
-]);
-
-const tryPrettyJson = (text) => {
-  try {
-    const parsed = JSON.parse(text);
-    return JSON.stringify(parsed, null, 2);
-  } catch (err) {
-    return null;
-  }
-};
-
-const prettyPrintHtml = (input = '') => {
-  if (!input) return '';
-  const normalized = input.replace(/\r\n/g, '\n').trim();
-  const collapsed = normalized.replace(/>\s+</g, '><');
-  const tokens = [];
-  let index = 0;
-  while (index < collapsed.length) {
-    const lt = collapsed.indexOf('<', index);
-    if (lt === -1) {
-      tokens.push(collapsed.slice(index));
-      break;
-    }
-    if (lt > index) {
-      tokens.push(collapsed.slice(index, lt));
-    }
-    const gt = collapsed.indexOf('>', lt);
-    if (gt === -1) {
-      tokens.push(collapsed.slice(lt));
-      break;
-    }
-    tokens.push(collapsed.slice(lt, gt + 1));
-    index = gt + 1;
-  }
-
-  let indent = 0;
-  const lines = [];
-  tokens.forEach((token) => {
-    const trimmed = token.trim();
-    if (!trimmed) return;
-    if (trimmed.startsWith('<!--') || /^<!DOCTYPE/i.test(trimmed)) {
-      lines.push(`${'  '.repeat(indent)}${trimmed}`);
-      return;
-    }
-    if (trimmed.startsWith('</')) {
-      indent = Math.max(indent - 1, 0);
-      lines.push(`${'  '.repeat(indent)}${trimmed}`);
-      return;
-    }
-    if (trimmed.startsWith('<')) {
-      const tagMatch = trimmed.match(/^<\s*([a-z0-9-]+)/i);
-      const tagName = tagMatch ? tagMatch[1].toLowerCase() : '';
-      const selfClosing = trimmed.endsWith('/>') || HTML_VOID_TAGS.has(tagName);
-      lines.push(`${'  '.repeat(indent)}${trimmed}`);
-      if (!selfClosing) {
-        indent += 1;
-      }
-      return;
-    }
-    lines.push(`${'  '.repeat(indent)}${trimmed}`);
-  });
-  return lines.join('\n');
-};
-
-const summarizeCacheability = (headers = {}) => {
-  const cacheControl = getHeaderValue(headers, 'cache-control');
-  const pragma = getHeaderValue(headers, 'pragma');
-  const expires = getHeaderValue(headers, 'expires');
-  const etag = getHeaderValue(headers, 'etag');
-  const lastModified = getHeaderValue(headers, 'last-modified');
-
-  const lowered = cacheControl.toLowerCase();
-  if (lowered.includes('no-store')) return 'No (no-store)';
-  if (lowered.includes('no-cache') || pragma.toLowerCase().includes('no-cache')) return 'Revalidate';
-  if (lowered.includes('private')) return 'Private';
-  if (lowered.includes('max-age') || lowered.includes('s-maxage') || lowered.includes('public')) return 'Yes';
-  if (expires) return 'Yes (expires)';
-  if (etag || lastModified) return 'Revalidate';
-  return 'Unknown';
-};
 
 function App() {
   const [entries, setEntries] = useState([]);
@@ -461,11 +277,17 @@ function App() {
     setRules((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  const handleHeaderValueChange = (event, index) => {
+  const handleHeaderNameChange = (index, value) => {
     const next = [...requestHeadersDraft];
-    next[index] = { ...next[index], value: event.target.value };
+    next[index] = { ...next[index], name: value };
     setRequestHeadersDraft(next);
-    resizeTextarea(event.target);
+  };
+
+  const handleHeaderValueChange = (index, value, element) => {
+    const next = [...requestHeadersDraft];
+    next[index] = { ...next[index], value };
+    setRequestHeadersDraft(next);
+    resizeTextarea(element);
   };
 
   const selected = useMemo(() => entries.find((e) => e.id === selectedId), [entries, selectedId]);
@@ -684,776 +506,74 @@ function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <img className="brand-logo" src={logo} alt="Hermes Proxy logo" />
-        <button
-          className={`nav-item ${activeTab === 'intercept' ? 'active' : ''}`}
-          onClick={() => setActiveTab('intercept')}
-        >
-          <span className="icon" aria-hidden="true">
-            <i className="fa-solid fa-satellite-dish"></i>
-          </span>
-          <span className="label">Intercept</span>
-        </button>
-        <button
-          className={`nav-item ${activeTab === 'setup' ? 'active' : ''}`}
-          onClick={() => setActiveTab('setup')}
-        >
-          <span className="icon" aria-hidden="true">
-            <i className="fa-solid fa-gear"></i>
-          </span>
-          <span className="label">Setup</span>
-        </button>
-        <button
-          className={`nav-item ${activeTab === 'rules' ? 'active' : ''}`}
-          onClick={() => setActiveTab('rules')}
-        >
-          <span className="icon" aria-hidden="true">
-            <i className="fa-solid fa-arrow-down-1-9"></i>
-          </span>
-          <span className="label">Rules</span>
-        </button>
-      </aside>
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === 'intercept' && (
-        <div className="app intercept">
-          <div
-            className={`intercept-grid ${isResizing ? 'resizing' : ''}`}
-            ref={splitRef}
-            style={{ gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` }}
-          >
-            <section className="panel traffic-panel">
-              <div className="header">
-                <h1>Traffic</h1>
-                <span className="status-pill">Listening on :{proxyPort}</span>
-              </div>
-              <div className="table-wrapper" ref={tableRef} onScroll={handleTableScroll}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Method</th>
-                      <th>Status</th>
-                      <th>Host</th>
-                      <th>Path</th>
-                      <th>Query</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEntries.length === 0 && (
-                      <tr>
-                        <td colSpan="5" className="empty">
-                          {entries.length === 0 ? 'Waiting for traffic…' : 'No matches for this filter.'}
-                        </td>
-                      </tr>
-                    )}
-                    {filteredEntries.map((entry) => (
-                      <tr
-                        key={entry.id}
-                        className={selectedId === entry.id ? 'selected' : ''}
-                        onClick={() => setSelectedId(entry.id)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          window.electronAPI?.showTrafficContextMenu?.(entry.id);
-                        }}
-                      >
-                        <td>
-                          <span className="pill method">{entry.method}</span>
-                        </td>
-                        <td>
-                          <span className={`pill ${statusTone(entry.status)}`}>{entry.status ?? '—'}</span>
-                        </td>
-                        <td>{entry.host}</td>
-                        <td>{entry.path}</td>
-                        <td>{entry.query || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <div
-              className="splitter"
-              onMouseDown={handleSplitterMouseDown}
-              role="separator"
-              aria-label="Resize panels"
-              aria-orientation="vertical"
-            />
-
-            <div className="detail-column">
-              {!selected && <div className="empty">Select a request to see details.</div>}
-              {selected && (
-                <div className="details-grid">
-                  <div className="detail-section">
-                    <div className="detail-header-row">
-                      <button
-                        className="detail-header"
-                        onClick={() => setRequestCollapsed((v) => !v)}
-                        type="button"
-                      >
-                        <span className="icon">
-                          <i className={`fa-solid fa-caret-${requestCollapsed ? 'right' : 'down'}`}></i>
-                        </span>
-                        <div className="detail-title">
-                          <div className="detail-kicker">REQUEST</div>
-                          <div className="detail-line">{requestLine}</div>
-                        </div>
-                      </button>
-                      <button
-                        className="icon-btn repeat-btn"
-                        type="button"
-                        aria-label="Repeat request"
-                        onClick={handleRepeatRequest}
-                      >
-                        <i className="fa-solid fa-repeat"></i>
-                      </button>
-                    </div>
-                    {!requestCollapsed && (
-                      <div className="detail-body request-body">
-                        <div className="plain-field" aria-label="Request method">
-                          <div className="kv-title">METHOD</div>
-                          <div className="plain-text">{selected.method}</div>
-                        </div>
-                        <div className="plain-field" aria-label="Request url">
-                          <div className="kv-title">URL</div>
-                          <input
-                            className="plain-input"
-                            type="text"
-                            value={requestUrlDraft}
-                            onChange={(event) => setRequestUrlDraft(event.target.value)}
-                          />
-                        </div>
-                        <div className="plain-field" aria-label="Request headers">
-                          <div className="kv-title">HEADERS</div>
-                          <div className="headers-grid">
-                            {requestHeadersDraft.length === 0 && <div className="empty">No headers</div>}
-                            {requestHeadersDraft.map((header, index) => (
-                              <div className="headers-row" key={`${header.name}-${index}`}>
-                                <input
-                                  className="header-input header-name-input"
-                                  type="text"
-                                  value={header.name}
-                                  onChange={(event) => {
-                                    const next = [...requestHeadersDraft];
-                                    next[index] = { ...next[index], name: event.target.value };
-                                    setRequestHeadersDraft(next);
-                                  }}
-                                />
-                                <textarea
-                                  className="header-input header-value-input"
-                                  rows={1}
-                                  value={header.value}
-                                  onChange={(event) => handleHeaderValueChange(event, index)}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      {requestDisplayBody && requestDisplayBody.length > 0 && (
-                        <div className="plain-field" aria-label="Request body">
-                          <div className="kv-title">BODY</div>
-                          <pre className="plain-pre">{requestBodyText}</pre>
-                        </div>
-                      )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="detail-section">
-                    <button
-                      className="detail-header"
-                      onClick={() => setResponseCollapsed((v) => !v)}
-                      type="button"
-                    >
-                      <span className="icon">
-                        <i className={`fa-solid fa-caret-${responseCollapsed ? 'right' : 'down'}`}></i>
-                      </span>
-                      <div className="detail-title">
-                        <div className="detail-kicker">RESPONSE</div>
-                        <div className="detail-line">{responseLine}</div>
-                        {selected.error && <div className="detail-sub error">Error: {selected.error}</div>}
-                      </div>
-                    </button>
-                    {!responseCollapsed && (
-                      <div className="detail-body request-body">
-                        <div className="plain-field" aria-label="Response status">
-                          <div className="kv-title">STATUS</div>
-                          <div className="plain-text">{selected.status ?? '—'}</div>
-                        </div>
-                        <div className="plain-field" aria-label="Response headers">
-                          <div className="kv-title">HEADERS</div>
-                          <div className="headers-grid">
-                            {headersToList(selected.responseHeaders).length === 0 && (
-                              <div className="empty">No headers</div>
-                            )}
-                            {headersToList(selected.responseHeaders).map(([key, value]) => (
-                              <div className="headers-row" key={key}>
-                                <div className="header-name header-cell">{key}</div>
-                                <div className="header-value header-cell">{String(value)}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {selected.responseBody && selected.responseBody.length > 0 && (
-                    <div className="detail-section">
-                      <button
-                        className="detail-header"
-                        onClick={() => setResponseBodyCollapsed((v) => !v)}
-                        type="button"
-                      >
-                        <span className="icon" aria-hidden="true">
-                          <i className={`fa-solid fa-caret-${responseBodyCollapsed ? 'right' : 'down'}`}></i>
-                        </span>
-                        <div className="detail-title">
-                          <div className="detail-kicker">RESPONSE BODY</div>
-                          <div className="detail-line">Payload</div>
-                        </div>
-                      </button>
-                      {!responseBodyCollapsed && (
-                        <div className="detail-body" aria-label="Response body">
-                          <div className="plain-field">
-                            <div className="kv-title kv-title-row">
-                              <span>BODY</span>
-                              <div className="kv-actions">
-                                {isPrettyPrintableResponse && (
-                                  <label className="toggle-field">
-                                    <input
-                                      type="checkbox"
-                                      checked={prettyPrintResponse}
-                                      onChange={(e) => setPrettyPrintResponse(e.target.checked)}
-                                    />
-                                    Pretty print
-                                  </label>
-                                )}
-                                <button
-                                  type="button"
-                                  className="icon-btn"
-                                  onClick={handleSaveResponseBody}
-                                  title="Save this body as file"
-                                  aria-label="Save this body as file"
-                                >
-                                  <i className="fa-solid fa-download"></i>
-                                </button>
-                              </div>
-                            </div>
-                            {prismLanguage ? (
-                              <pre className={`plain-pre code-view prism-code language-${prismLanguage}`}>
-                                <code dangerouslySetInnerHTML={{ __html: prismHtml || ' ' }} />
-                              </pre>
-                            ) : (
-                              <pre className="plain-pre code-view">{responseBodyText}</pre>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="detail-section">
-                    <button
-                      className="detail-header"
-                      onClick={() => setPerformanceCollapsed((v) => !v)}
-                      type="button"
-                    >
-                      <span className="icon" aria-hidden="true">
-                        <i className={`fa-solid fa-caret-${performanceCollapsed ? 'right' : 'down'}`}></i>
-                      </span>
-                      <div className="detail-title">
-                        <div className="detail-kicker">PERFORMANCE</div>
-                        <div className="detail-line">Performance overview</div>
-                      </div>
-                    </button>
-                    {!performanceCollapsed && (
-                      <div className="detail-body performance-view" aria-label="Performance overview">
-                        {performanceData && (
-                          <div className="performance-metrics">
-                            <div className="metric-row">
-                              <div className="metric-label">Captured</div>
-                              <div className="metric-value">{performanceData.capturedAt}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Duration</div>
-                              <div className="metric-value">{formatMs(performanceData.durationMs)}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Request Size</div>
-                              <div className="metric-value">
-                                {formatBytes(performanceData.requestSize)}
-                                {performanceData.requestDecodedSize
-                                  ? ` (decoded ${formatBytes(performanceData.requestDecodedSize)})`
-                                  : ''}
-                                {performanceData.requestSizeSource ? ` (${performanceData.requestSizeSource})` : ''}
-                              </div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Response Size</div>
-                              <div className="metric-value">
-                                {formatBytes(performanceData.responseSize)}
-                                {performanceData.responseDecodedSize
-                                  ? ` (decoded ${formatBytes(performanceData.responseDecodedSize)})`
-                                  : ''}
-                                {performanceData.responseSizeSource ? ` (${performanceData.responseSizeSource})` : ''}
-                              </div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Encoding</div>
-                              <div className="metric-value">
-                                Req {performanceData.requestEncoding} · Res {performanceData.responseEncoding}
-                              </div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Compression</div>
-                              <div className="metric-value">
-                                {performanceData.compressionSummary} · Potential {performanceData.potentialCompression}
-                              </div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Cacheable</div>
-                              <div className="metric-value">{performanceData.cacheable}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Cache-Control</div>
-                              <div className="metric-value">{performanceData.cacheControl}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">ETag</div>
-                              <div className="metric-value">{performanceData.etag}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Last-Modified</div>
-                              <div className="metric-value">{performanceData.lastModified}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Expires</div>
-                              <div className="metric-value">{performanceData.expires}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Age</div>
-                              <div className="metric-value">{performanceData.age}</div>
-                            </div>
-                            <div className="metric-row">
-                              <div className="metric-label">Content-Type</div>
-                              <div className="metric-value">{performanceData.contentType}</div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="bottom-menu">
-            <div className="filter-row">
-              <input
-                className="filter-input"
-                value={filterText}
-                onChange={(e) => setFilterText(e.target.value)}
-                placeholder="Filter by method, host, headers, status..."
-              />
-              <button
-                className="icon-btn"
-                type="button"
-                aria-label="Export all traffic as HAR"
-                title="Export all traffic as HAR"
-                onClick={handleExportAllHar}
-              >
-                <i className="fa-solid fa-save"></i>
-              </button>
-              <button
-                className="icon-btn"
-                type="button"
-                aria-label="Import HAR file"
-                title="Import traffic from a HAR file"
-                onClick={handleImportHar}
-              >
-                <i className="fa-solid fa-folder-open"></i>
-              </button>
-              <button
-                className="icon-btn"
-                type="button"
-                aria-label="Clear traffic"
-                title="Clear all traffic"
-                onClick={handleClearTraffic}
-              >
-                <i className="fa-solid fa-trash"></i>
-              </button>
-            </div>
-          </div>
-        </div>
+        <InterceptView
+          entries={entries}
+          filteredEntries={filteredEntries}
+          selected={selected}
+          selectedId={selectedId}
+          onSelectEntry={setSelectedId}
+          onShowContextMenu={(entryId) => window.electronAPI?.showTrafficContextMenu?.(entryId)}
+          proxyPort={proxyPort}
+          isResizing={isResizing}
+          splitPercent={splitPercent}
+          splitRef={splitRef}
+          tableRef={tableRef}
+          onTableScroll={handleTableScroll}
+          onSplitterMouseDown={handleSplitterMouseDown}
+          requestCollapsed={requestCollapsed}
+          responseCollapsed={responseCollapsed}
+          responseBodyCollapsed={responseBodyCollapsed}
+          performanceCollapsed={performanceCollapsed}
+          onToggleRequest={() => setRequestCollapsed((v) => !v)}
+          onToggleResponse={() => setResponseCollapsed((v) => !v)}
+          onToggleResponseBody={() => setResponseBodyCollapsed((v) => !v)}
+          onTogglePerformance={() => setPerformanceCollapsed((v) => !v)}
+          requestLine={requestLine}
+          responseLine={responseLine}
+          requestUrlDraft={requestUrlDraft}
+          onRequestUrlChange={setRequestUrlDraft}
+          requestHeadersDraft={requestHeadersDraft}
+          onRequestHeaderNameChange={handleHeaderNameChange}
+          onRequestHeaderValueChange={handleHeaderValueChange}
+          requestDisplayBody={requestDisplayBody}
+          requestBodyText={requestBodyText}
+          responseBodyText={responseBodyText}
+          prismLanguage={prismLanguage}
+          prismHtml={prismHtml}
+          isPrettyPrintableResponse={isPrettyPrintableResponse}
+          prettyPrintResponse={prettyPrintResponse}
+          onPrettyPrintResponseChange={setPrettyPrintResponse}
+          onSaveResponseBody={handleSaveResponseBody}
+          performanceData={performanceData}
+          filterText={filterText}
+          onFilterTextChange={setFilterText}
+          onExportAllHar={handleExportAllHar}
+          onImportHar={handleImportHar}
+          onClearTraffic={handleClearTraffic}
+          onRepeatRequest={handleRepeatRequest}
+        />
       )}
 
       {activeTab === 'setup' && (
-        <div className="app single">
-          <section className="panel">
-            <div className="header">
-              <h1>Setup</h1>
-              <span className="status-pill">HTTPS intercept</span>
-            </div>
-            <div className="setup-text">
-              <p>
-                <strong>1. Send traffic via Hermes Proxy</strong>
-                <br />
-                To intercept an HTTP client on this machine, configure it to send traffic via{' '}
-                <code>{`http://localhost:${proxyPort}`}</code>.
-              </p>
-              <p>
-                Most tools can be configured to do so by using the above address as an HTTP or HTTPS proxy. You can also
-                forcibly reroute traffic using networking tools like <code>iptables</code>.
-              </p>
-              <p>Remote clients (e.g. phones) should use this machine&apos;s IP address instead of localhost.</p>
-              <p>
-                <strong>2. Trust the certificate authority</strong>
-                <br />
-                Only required to intercept traffic that uses HTTPS.
-              </p>
-              <p>
-                Hermes Proxy generated a certificate authority (CA) on your machine. All intercepted HTTPS uses
-                certificates signed by this CA.
-              </p>
-              <p>
-                <button
-                  className="export-btn"
-                  onClick={() => window.electronAPI?.exportCaCertificate?.()}
-                  disabled={!caPath}
-                  title={caPath || 'Still generating CA'}
-                >
-                  Export CA certificate
-                </button>
-              </p>
-              <p>
-                To intercept HTTPS traffic you need to configure your HTTP client to trust this certificate as a
-                certificate authority, or temporarily disable certificate checks.
-              </p>
-              {caPath && (
-                <div className="hint">
-                  CA location: <code>{caPath}</code>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
+        <SetupView
+          proxyPort={proxyPort}
+          caPath={caPath}
+          onExportCa={() => window.electronAPI?.exportCaCertificate?.()}
+        />
       )}
 
       {activeTab === 'rules' && (
-        <div className="app single">
-          <section className="panel">
-            <div className="header">
-              <h1>Rules</h1>
-              <div className="header-actions">
-                <button className="export-btn" type="button" onClick={handleAddRule}>
-                  Add rule
-                </button>
-                <button
-                  className="icon-btn"
-                  type="button"
-                  title="Save rules to file"
-                  aria-label="Save rules"
-                  onClick={handleSaveRules}
-                >
-                  <i className="fa-solid fa-save"></i>
-                </button>
-                <button
-                  className="icon-btn"
-                  type="button"
-                  title="Load rules from file"
-                  aria-label="Load rules"
-                  onClick={handleLoadRules}
-                >
-                  <i className="fa-solid fa-folder-open"></i>
-                </button>
-              </div>
-            </div>
-            <div className="rules-list">
-              {rules.length === 0 && <div className="empty">No rules yet.</div>}
-              {rules.map((rule, index) => (
-                <div className="rule-card" key={rule.id}>
-                  <div className="rule-header">
-                    <input
-                      className="rule-name"
-                      type="text"
-                      value={rule.name}
-                      onChange={(event) =>
-                        handleUpdateRule(index, (current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                    <label className="rule-toggle">
-                      <input
-                        type="checkbox"
-                        checked={rule.enabled}
-                        onChange={(event) =>
-                          handleUpdateRule(index, (current) => ({
-                            ...current,
-                            enabled: event.target.checked,
-                          }))
-                        }
-                      />
-                      Enabled
-                    </label>
-                    <button
-                      className="icon-btn"
-                      type="button"
-                      aria-label="Remove rule"
-                      title="Remove rule"
-                      onClick={() => handleRemoveRule(index)}
-                    >
-                      <i className="fa-solid fa-xmark"></i>
-                    </button>
-                  </div>
-                  <div className="rule-section">
-                    <div className="kv-title">MATCH</div>
-                    <div className="rule-grid">
-                      <label className="rule-field">
-                        <span>Methods</span>
-                        <select
-                          className="rule-methods-select"
-                          value={rule.match.methods[0] || '*'}
-                          onChange={(event) => {
-                            const methods = [event.target.value.toUpperCase()];
-                            handleUpdateRule(index, (current) => ({
-                              ...current,
-                              match: { ...current.match, methods },
-                            }));
-                          }}
-                        >
-                          {HTTP_METHODS.map((method) => (
-                            <option value={method} key={method}>
-                              {method}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="rule-field">
-                        <span>Hosts</span>
-                        <input
-                          type="text"
-                          value={rule.match.hosts.join(', ')}
-                          onChange={(event) => {
-                            const hosts = parseListInput(event.target.value);
-                            handleUpdateRule(index, (current) => ({
-                              ...current,
-                              match: { ...current.match, hosts },
-                            }));
-                          }}
-                          placeholder="api.example.com"
-                        />
-                      </label>
-                      <label className="rule-field">
-                        <span>URL contains</span>
-                        <input
-                          type="text"
-                          value={rule.match.urls.join(', ')}
-                          onChange={(event) => {
-                            const urls = parseListInput(event.target.value);
-                            handleUpdateRule(index, (current) => ({
-                              ...current,
-                              match: { ...current.match, urls },
-                            }));
-                          }}
-                          placeholder="/v1/orders"
-                        />
-                      </label>
-                    </div>
-                    <div className="rule-subsection">
-                      <div className="rule-subheader">
-                        <span>Header matchers</span>
-                        <button
-                          className="icon-btn rule-add-btn"
-                          type="button"
-                          aria-label="Add header matcher"
-                          title="Add header matcher"
-                          onClick={() =>
-                            handleUpdateRule(index, (current) => ({
-                              ...current,
-                              match: {
-                                ...current.match,
-                                headers: [...current.match.headers, { name: '', value: '' }],
-                              },
-                            }))
-                          }
-                        >
-                          <i className="fa-solid fa-plus"></i>
-                        </button>
-                      </div>
-                      {rule.match.headers.length === 0 && <div className="empty">No header matchers</div>}
-                      {rule.match.headers.map((matcher, matcherIndex) => (
-                        <div className="headers-row rule-headers-row" key={`matcher-${matcherIndex}`}>
-                          <input
-                            className="header-input header-name-input"
-                            type="text"
-                            value={matcher.name}
-                            placeholder="Header name"
-                            onChange={(event) => {
-                              const headers = [...rule.match.headers];
-                              headers[matcherIndex] = { ...headers[matcherIndex], name: event.target.value };
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                match: { ...current.match, headers },
-                              }));
-                            }}
-                          />
-                          <input
-                            className="header-input header-value-input"
-                            type="text"
-                            value={matcher.value}
-                            placeholder="Header value"
-                            onChange={(event) => {
-                              const headers = [...rule.match.headers];
-                              headers[matcherIndex] = { ...headers[matcherIndex], value: event.target.value };
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                match: { ...current.match, headers },
-                              }));
-                            }}
-                          />
-                          <button
-                            className="icon-btn"
-                            type="button"
-                            aria-label="Remove header matcher"
-                            title="Remove header matcher"
-                            onClick={() => {
-                              const headers = rule.match.headers.filter((_, idx) => idx !== matcherIndex);
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                match: { ...current.match, headers },
-                              }));
-                            }}
-                          >
-                            <i className="fa-solid fa-xmark"></i>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="rule-section">
-                    <div className="rule-section-header">
-                      <div className="kv-title">ACTIONS</div>
-                      <label className="rule-action-label">
-                        <select
-                          className="rule-action-select"
-                          value={rule.actions.type}
-                          onChange={(event) => {
-                            const type = event.target.value;
-                            handleUpdateRule(index, (current) => ({
-                              ...current,
-                              actions: {
-                                ...current.actions,
-                                type,
-                                delayMs: type === 'delay' ? current.actions.delayMs : 0,
-                                overrideHeaders: type === 'overrideHeaders' ? current.actions.overrideHeaders : [],
-                              },
-                            }));
-                          }}
-                        >
-                          <option value="none">None</option>
-                          <option value="delay">Wait before continuing</option>
-                          <option value="overrideHeaders">Override headers</option>
-                          <option value="close">Close the connection</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="rule-grid">
-                      {rule.actions.type === 'delay' && (
-                        <label className="rule-field">
-                          <span>Wait (ms)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            value={rule.actions.delayMs}
-                            onChange={(event) => {
-                              const delayMs = Number(event.target.value || 0);
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                actions: { ...current.actions, delayMs },
-                              }));
-                            }}
-                          />
-                        </label>
-                      )}
-                    </div>
-                    {rule.actions.type === 'overrideHeaders' && (
-                      <div className="rule-subsection">
-                        <div className="rule-subheader">
-                          <span>Override headers</span>
-                          <button
-                            className="icon-btn rule-add-btn"
-                            type="button"
-                            aria-label="Add override header"
-                            title="Add override header"
-                            onClick={() =>
-                              handleUpdateRule(index, (current) => ({
-                                ...current,
-                                actions: {
-                                  ...current.actions,
-                                  overrideHeaders: [...current.actions.overrideHeaders, { name: '', value: '' }],
-                                },
-                              }))
-                            }
-                          >
-                            <i className="fa-solid fa-plus"></i>
-                          </button>
-                        </div>
-                        {rule.actions.overrideHeaders.length === 0 && <div className="empty">No overrides</div>}
-                        {rule.actions.overrideHeaders.map((override, overrideIndex) => (
-                          <div className="headers-row rule-headers-row" key={`override-${overrideIndex}`}>
-                            <input
-                              className="header-input header-name-input"
-                              type="text"
-                              value={override.name}
-                              placeholder="Header name"
-                              onChange={(event) => {
-                                const overrides = [...rule.actions.overrideHeaders];
-                                overrides[overrideIndex] = { ...overrides[overrideIndex], name: event.target.value };
-                                handleUpdateRule(index, (current) => ({
-                                  ...current,
-                                  actions: { ...current.actions, overrideHeaders: overrides },
-                                }));
-                              }}
-                            />
-                            <input
-                              className="header-input header-value-input"
-                              type="text"
-                              value={override.value}
-                              placeholder="Header value"
-                              onChange={(event) => {
-                                const overrides = [...rule.actions.overrideHeaders];
-                                overrides[overrideIndex] = { ...overrides[overrideIndex], value: event.target.value };
-                                handleUpdateRule(index, (current) => ({
-                                  ...current,
-                                  actions: { ...current.actions, overrideHeaders: overrides },
-                                }));
-                              }}
-                            />
-                            <button
-                              className="icon-btn"
-                              type="button"
-                              aria-label="Remove override header"
-                              title="Remove override header"
-                              onClick={() => {
-                                const overrides = rule.actions.overrideHeaders.filter((_, idx) => idx !== overrideIndex);
-                                handleUpdateRule(index, (current) => ({
-                                  ...current,
-                                  actions: { ...current.actions, overrideHeaders: overrides },
-                                }));
-                              }}
-                            >
-                              <i className="fa-solid fa-xmark"></i>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
+        <RulesView
+          rules={rules}
+          onAddRule={handleAddRule}
+          onUpdateRule={handleUpdateRule}
+          onRemoveRule={handleRemoveRule}
+          onSaveRules={handleSaveRules}
+          onLoadRules={handleLoadRules}
+        />
       )}
     </div>
   );
