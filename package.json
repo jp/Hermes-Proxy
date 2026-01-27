@@ -2,15 +2,17 @@
   "name": "hermes-proxy",
   "version": "1.0.0",
   "description": "Hermes Proxy desktop app",
-  "main": "electron/main.js",
+  "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && electron .\"",
+    "dev": "concurrently \"vite\" \"npm:electron:watch\" \"wait-on http://localhost:5174 && wait-on electron/dist/main.js && electron .\"",
     "vite": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run electron:build",
     "dist": "npm run build && electron-builder",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
-    "start": "electron ."
+    "start": "npm run electron:build && electron .",
+    "electron:build": "tsc -p electron/tsconfig.json",
+    "electron:watch": "tsc -p electron/tsconfig.json -w"
   },
   "keywords": [],
   "author": "",
