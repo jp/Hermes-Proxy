@@ -259,7 +259,7 @@ describe('App traffic actions', () => {
     await screen.findByText('/page');
     await user.click(screen.getByText('/page'));
 
-    const bodyTabs = screen.getAllByRole('button', { name: 'Body' });
+    const bodyTabs = screen.getAllByRole('tab', { name: 'Body' });
     await user.click(bodyTabs[1]);
 
     await user.click(screen.getByTitle(/save this body as file/i));

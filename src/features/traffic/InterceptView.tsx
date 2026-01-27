@@ -235,14 +235,38 @@ function InterceptView({
                     </div>
                     {requestView === 'headers' && (
                       <>
+                        <div className="plain-field" aria-label="Request url">
+                          <div className="kv-title">URL</div>
+                          <input
+                            className="plain-input url-hostpath"
+                            type="text"
+                            value={requestUrlDraft}
+                            onChange={(event) => onRequestUrlChange(event.currentTarget.value)}
+                            placeholder="scheme://host/path"
+                          />
+                        </div>
                         <div className="plain-field" aria-label="Request headers">
                           <div className="kv-title">HEADERS</div>
                           <div className="headers-grid">
                             {requestHeadersDraft.length === 0 && <div className="empty">No headers</div>}
                             {requestHeadersDraft.map((header, index) => (
                               <div className="headers-row" key={`${header.name}-${index}`}>
-                                <div className="header-name header-cell">{header.name}</div>
-                                <div className="header-value header-cell">{header.value || '—'}</div>
+                                <input
+                                  className="header-input header-name-input"
+                                  type="text"
+                                  placeholder="Header name"
+                                  value={header.name}
+                                  onChange={(event) => onRequestHeaderNameChange(index, event.currentTarget.value)}
+                                />
+                                <textarea
+                                  className="header-input header-value-input"
+                                  rows={1}
+                                  placeholder="Header value"
+                                  value={header.value}
+                                  onChange={(event) =>
+                                    onRequestHeaderValueChange(index, event.currentTarget.value, event.currentTarget)
+                                  }
+                                />
                               </div>
                             ))}
                           </div>
