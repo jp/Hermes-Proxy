@@ -19,6 +19,7 @@ import {
   isJsonContent,
   isLikelyHtmlBody,
   parseContentLength,
+  parseQueryParams,
   summarizeCacheability,
 } from './utils/http';
 import { createRule } from './utils/rules';
@@ -34,8 +35,8 @@ function App() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [responseCollapsed, setResponseCollapsed] = useState(false);
-  const [performanceCollapsed, setPerformanceCollapsed] = useState(false);
-  const [responseBodyCollapsed, setResponseBodyCollapsed] = useState(false);
+  const [requestView, setRequestView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary'>('headers');
+  const [responseView, setResponseView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary'>('headers');
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
@@ -192,8 +193,8 @@ function App() {
   useEffect(() => {
     setRequestCollapsed(false);
     setResponseCollapsed(false);
-    setPerformanceCollapsed(false);
-    setResponseBodyCollapsed(false);
+    setRequestView('headers');
+    setResponseView('headers');
   }, [selectedId]);
 
   useEffect(() => {
@@ -338,10 +339,18 @@ function App() {
     const version = selected.requestHttpVersion || 'HTTP/1.1';
     return `${version} ${selected.method} ${selected.host}`;
   }, [selected]);
+  const requestTarget = useMemo(() => {
+    if (!selected) return '';
+    return `${selected.path}${selected.query || ''}`;
+  }, [selected]);
   const responseLine = useMemo(() => {
     if (!selected) return '';
     const prefix = selected.responseHttpVersion || 'HTTP/1.1';
     return `${prefix} ${selected.status ?? '—'}`;
+  }, [selected]);
+  const requestQueryEntries = useMemo(() => {
+    if (!selected) return [];
+    return parseQueryParams(selected.query || '');
   }, [selected]);
   const responseContentType = useMemo(() => {
     if (!selected) return '';
@@ -430,6 +439,42 @@ function App() {
     const language = Prism.languages[prismLanguage] || Prism.languages.markup;
     return Prism.highlight(responseBodyText, language, prismLanguage);
   }, [prismLanguage, responseBodyText]);
+  const requestRawText = useMemo(() => {
+    if (!selected) return '';
+    const version = selected.requestHttpVersion || 'HTTP/1.1';
+    const startLine = `${selected.method} ${requestTarget || '/'} ${version}`;
+    const headerText = headersToText(selected.requestHeaders || {});
+    const segments = [startLine, headerText];
+    if (requestDisplayBody) {
+      segments.push('', requestDisplayBody);
+    }
+    return segments.filter((segment) => segment !== '').join('\n');
+  }, [selected, requestTarget, requestDisplayBody]);
+  const responseRawText = useMemo(() => {
+    if (!selected) return '';
+    const version = selected.responseHttpVersion || 'HTTP/1.1';
+    const startLine = `${version} ${selected.status ?? '—'}`;
+    const headerText = headersToText(selected.responseHeaders || {});
+    const segments = [startLine, headerText];
+    if (responseDisplayBody) {
+      segments.push('', responseDisplayBody);
+    }
+    return segments.filter((segment) => segment !== '').join('\n');
+  }, [selected, responseDisplayBody]);
+  const requestSummaryItems = useMemo(() => {
+    if (!selected) return [];
+    return [
+      { label: 'Method', value: selected.method },
+      { label: 'Host', value: selected.host },
+      { label: 'Path', value: requestTarget || '/' },
+      { label: 'Query', value: requestQueryEntries.length ? `${requestQueryEntries.length} params` : 'None' },
+      {
+        label: 'Headers',
+        value: selected.requestHeaders ? `${Object.keys(selected.requestHeaders).length} headers` : '0 headers',
+      },
+      { label: 'Body', value: selected.requestBody ? `${selected.requestBody.length} bytes` : '—' },
+    ];
+  }, [selected, requestTarget, requestQueryEntries]);
 
   const handleSaveResponseBody = () => {
     if (!selected?.responseBody) return;
@@ -506,6 +551,16 @@ function App() {
       contentType: contentType || '—',
     };
   }, [selected]);
+  const responseSummaryItems = useMemo(() => {
+    if (!selected) return [];
+    return [
+      { label: 'Status', value: String(selected.status ?? '—') },
+      { label: 'Duration', value: performanceData ? `${performanceData.durationMs ?? '—'} ms` : '—' },
+      { label: 'Size', value: performanceData?.responseSize ? `${performanceData.responseSize} bytes` : '—' },
+      { label: 'Encoding', value: performanceData?.responseEncoding ?? 'None' },
+      { label: 'Cacheable', value: performanceData?.cacheable ?? '—' },
+    ];
+  }, [selected, performanceData]);
 
   return (
     <div className="shell">
@@ -528,12 +583,12 @@ function App() {
           onSplitterMouseDown={handleSplitterMouseDown}
           requestCollapsed={requestCollapsed}
           responseCollapsed={responseCollapsed}
-          responseBodyCollapsed={responseBodyCollapsed}
-          performanceCollapsed={performanceCollapsed}
           onToggleRequest={() => setRequestCollapsed((v) => !v)}
           onToggleResponse={() => setResponseCollapsed((v) => !v)}
-          onToggleResponseBody={() => setResponseBodyCollapsed((v) => !v)}
-          onTogglePerformance={() => setPerformanceCollapsed((v) => !v)}
+          requestView={requestView}
+          responseView={responseView}
+          onRequestViewChange={setRequestView}
+          onResponseViewChange={setResponseView}
           requestLine={requestLine}
           responseLine={responseLine}
           requestUrlDraft={requestUrlDraft}
@@ -550,13 +605,21 @@ function App() {
           prettyPrintResponse={prettyPrintResponse}
           onPrettyPrintResponseChange={setPrettyPrintResponse}
           onSaveResponseBody={handleSaveResponseBody}
-          performanceData={performanceData}
+          requestQueryEntries={requestQueryEntries}
+          requestRawText={requestRawText}
+          responseRawText={responseRawText}
+          requestSummaryItems={requestSummaryItems}
+          responseSummaryItems={responseSummaryItems}
           filterText={filterText}
           onFilterTextChange={setFilterText}
           onExportAllHar={handleExportAllHar}
           onImportHar={handleImportHar}
           onClearTraffic={handleClearTraffic}
           onRepeatRequest={handleRepeatRequest}
+          onOpenRequestEditor={() => {
+            if (!selected) return;
+            window.electronAPI?.openRequestEditor?.(selected.id);
+          }}
         />
       )}
 

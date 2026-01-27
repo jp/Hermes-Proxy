@@ -16,6 +16,8 @@ type RepeatRequestPayload = {
   entryId: string;
   url: string;
   headers: RequestHeaderDraft[];
+  method?: string;
+  body?: string;
 };
 
 interface ElectronApi {
@@ -34,6 +36,7 @@ interface ElectronApi {
   exportAllHar?: () => Promise<void>;
   importHar?: () => Promise<void>;
   clearTraffic?: () => Promise<void>;
+  openRequestEditor?: (entryId: string) => Promise<boolean> | boolean;
   saveRules?: () => Promise<void>;
   loadRules?: () => Promise<void>;
   showTrafficContextMenu?: (entryId: string) => void;

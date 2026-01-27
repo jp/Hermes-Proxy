@@ -57,6 +57,16 @@ const isLikelyHtmlBody = (text = '') => {
   return snippet.startsWith('<!doctype html') || snippet.startsWith('<html') || snippet.includes('<html');
 };
 
+const parseQueryParams = (query = '') => {
+  const trimmed = query.startsWith('?') ? query.slice(1) : query;
+  if (!trimmed) return [];
+  const params = new URLSearchParams(trimmed);
+  return Array.from(params.entries()).map(([name, value]) => ({
+    name,
+    value,
+  }));
+};
+
 const summarizeCacheability = (headers: HeaderMap = {}) => {
   const cacheControl = getHeaderValue(headers, 'cache-control');
   const pragma = getHeaderValue(headers, 'pragma');
@@ -86,4 +96,5 @@ export {
   isHtmlContent,
   isLikelyHtmlBody,
   summarizeCacheability,
+  parseQueryParams,
 };

@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportAllHar: () => ipcRenderer.invoke('proxy:export-all-har'),
   importHar: () => ipcRenderer.invoke('proxy:import-har'),
   clearTraffic: () => ipcRenderer.invoke('proxy:clear-traffic'),
+  openRequestEditor: (entryId) => ipcRenderer.invoke('proxy:open-request-editor', entryId),
   saveResponseBody: (payload) => ipcRenderer.invoke('proxy:save-response-body', payload),
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),

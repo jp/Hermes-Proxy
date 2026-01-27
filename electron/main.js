@@ -328,6 +328,13 @@ const decodeHarBody = (content = {}) => {
   return Buffer.from(content.text, 'utf8');
 };
 
+const isTimeoutError = (err) => {
+  if (!err) return false;
+  const code = String(err.code || '').toUpperCase();
+  if (['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNABORTED', 'ETIMEOUT'].includes(code)) return true;
+  return /timeout/i.test(String(err.message || ''));
+};
+
 const buildEntryFromHar = (harEntry) => {
   const request = harEntry?.request || {};
   const response = harEntry?.response || {};
@@ -448,7 +455,7 @@ const startMitmProxy = async () => {
         buildEntry({
           target,
           request: ctx.clientToProxyRequest,
-          status: 500,
+          status: isTimeoutError(err) ? 499 : 500,
           responseHeaders: ctx.serverToProxyResponse?.headers,
           requestBody: ctx._requestBody || Buffer.alloc(0),
           responseBody: Buffer.alloc(0),
@@ -618,6 +625,30 @@ const createWindow = () => {
   }
 };
 
+const createRequestEditorWindow = (entryId) => {
+  const iconPath = path.join(__dirname, '../src/images/icon.png');
+  const win = new BrowserWindow({
+    width: 900,
+    height: 720,
+    backgroundColor: '#0f172a',
+    icon: iconPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    win.loadURL(`http://localhost:5174/?mode=request-editor&entryId=${encodeURIComponent(entryId)}`);
+  } else {
+    win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'), {
+      query: { mode: 'request-editor', entryId },
+    });
+  }
+};
+
 app.whenReady().then(() => {
   try {
     const defaultRulesPath = getDefaultRulesPath();
@@ -708,6 +739,12 @@ ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
     console.error('Failed to repeat request', err);
     return false;
   }
+});
+ipcMain.handle('proxy:open-request-editor', (_event, entryId) => {
+  const entry = entries.find((item) => item.id === entryId);
+  if (!entry) return false;
+  createRequestEditorWindow(entryId);
+  return true;
 });
 ipcMain.handle('proxy:export-all-har', async () => {
   try {
@@ -1009,12 +1046,20 @@ const repeatEntryRequest = (entry, overrides = {}) =>
     const url = resolveReplayUrl(entry, overrides.url);
     const isHttps = url.protocol === 'https:';
     const transport = isHttps ? https : http;
-    const method = entry.method || 'GET';
-    const hasDecodedBody = Boolean(entry.requestDecodedBody);
-    const requestBodyText = hasDecodedBody ? entry.requestDecodedBody : entry.requestBody;
+    const method = overrides.method || entry.method || 'GET';
+    const hasBodyOverride = typeof overrides.body === 'string';
+    const hasDecodedBody = hasBodyOverride ? true : Boolean(entry.requestDecodedBody);
+    const requestBodyText = hasBodyOverride
+      ? overrides.body
+      : hasDecodedBody
+        ? entry.requestDecodedBody
+        : entry.requestBody;
     const requestBodyBuffer = requestBodyText ? Buffer.from(requestBodyText) : Buffer.alloc(0);
     const replayHeaders = buildReplayHeaders(entry, overrides);
     const headers = sanitizeHeaders(replayHeaders, { stripContentEncoding: hasDecodedBody });
+    if (typeof requestBodyText === 'string') {
+      headers['content-length'] = String(requestBodyBuffer.length);
+    }
     const options = {
       method,
       hostname: url.hostname,
@@ -1056,7 +1101,7 @@ const repeatEntryRequest = (entry, overrides = {}) =>
             headers: replayHeaders,
             httpVersion: entry.requestHttpVersion?.replace('HTTP/', '') || '1.1',
           },
-          status: 500,
+          status: isTimeoutError(err) ? 499 : 500,
           responseHeaders: {},
           requestBody: requestBodyBuffer,
           responseBody: Buffer.alloc(0),

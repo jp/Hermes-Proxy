@@ -1,7 +1,6 @@
 import React from 'react';
-import { formatBytes, formatMs } from '../../utils/format';
 import { headersToList, statusTone } from '../../utils/http';
-import type { PerformanceData, ProxyEntry, RequestHeaderDraft } from '../../types';
+import type { ProxyEntry, RequestHeaderDraft } from '../../types';
 
 type InterceptViewProps = {
   entries: ProxyEntry[];
@@ -19,12 +18,12 @@ type InterceptViewProps = {
   onSplitterMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
   requestCollapsed: boolean;
   responseCollapsed: boolean;
-  responseBodyCollapsed: boolean;
-  performanceCollapsed: boolean;
   onToggleRequest: () => void;
   onToggleResponse: () => void;
-  onToggleResponseBody: () => void;
-  onTogglePerformance: () => void;
+  requestView: 'headers' | 'query' | 'body' | 'raw' | 'summary';
+  responseView: 'headers' | 'query' | 'body' | 'raw' | 'summary';
+  onRequestViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary') => void;
+  onResponseViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary') => void;
   requestLine: string;
   responseLine: string;
   requestUrlDraft: string;
@@ -41,13 +40,18 @@ type InterceptViewProps = {
   prettyPrintResponse: boolean;
   onPrettyPrintResponseChange: (value: boolean) => void;
   onSaveResponseBody: () => void;
-  performanceData: PerformanceData | null;
+  requestQueryEntries: Array<{ name: string; value: string }>;
+  requestRawText: string;
+  responseRawText: string;
+  requestSummaryItems: Array<{ label: string; value: string }>;
+  responseSummaryItems: Array<{ label: string; value: string }>;
   filterText: string;
   onFilterTextChange: (value: string) => void;
   onExportAllHar: () => void;
   onImportHar: () => void;
   onClearTraffic: () => void;
   onRepeatRequest: () => void;
+  onOpenRequestEditor: () => void;
 };
 
 function InterceptView({
@@ -66,12 +70,12 @@ function InterceptView({
   onSplitterMouseDown,
   requestCollapsed,
   responseCollapsed,
-  responseBodyCollapsed,
-  performanceCollapsed,
   onToggleRequest,
   onToggleResponse,
-  onToggleResponseBody,
-  onTogglePerformance,
+  requestView,
+  responseView,
+  onRequestViewChange,
+  onResponseViewChange,
   requestLine,
   responseLine,
   requestUrlDraft,
@@ -88,14 +92,33 @@ function InterceptView({
   prettyPrintResponse,
   onPrettyPrintResponseChange,
   onSaveResponseBody,
-  performanceData,
+  requestQueryEntries,
+  requestRawText,
+  responseRawText,
+  requestSummaryItems,
+  responseSummaryItems,
   filterText,
   onFilterTextChange,
   onExportAllHar,
   onImportHar,
   onClearTraffic,
   onRepeatRequest,
+  onOpenRequestEditor,
 }: InterceptViewProps) {
+  const requestTabs = [
+    { id: 'headers', label: 'Header' },
+    { id: 'query', label: 'Query' },
+    { id: 'body', label: 'Body' },
+    { id: 'raw', label: 'Raw' },
+    { id: 'summary', label: 'Summary' },
+  ] as const;
+  const responseTabs = [
+    { id: 'headers', label: 'Header' },
+    { id: 'query', label: 'Query' },
+    { id: 'body', label: 'Body' },
+    { id: 'raw', label: 'Raw' },
+    { id: 'summary', label: 'Summary' },
+  ] as const;
   return (
     <div className="app intercept">
       <div
@@ -184,50 +207,85 @@ function InterceptView({
                   >
                     <i className="fa-solid fa-repeat"></i>
                   </button>
+                  <button
+                    className="icon-btn"
+                    type="button"
+                    aria-label="Edit request"
+                    title="Edit request in new window"
+                    onClick={onOpenRequestEditor}
+                  >
+                    <i className="fa-solid fa-pen-to-square"></i>
+                  </button>
                 </div>
                 {!requestCollapsed && (
                   <div className="detail-body request-body">
-                    <div className="plain-field" aria-label="Request method">
-                      <div className="kv-title">METHOD</div>
-                      <div className="plain-text">{selected.method}</div>
+                    <div className="view-tabs" role="tablist" aria-label="Request view tabs">
+                      {requestTabs.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          className={`view-tab ${requestView === tab.id ? 'active' : ''}`}
+                          onClick={() => onRequestViewChange(tab.id)}
+                          role="tab"
+                          aria-selected={requestView === tab.id}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
                     </div>
-                    <div className="plain-field" aria-label="Request url">
-                      <div className="kv-title">URL</div>
-                      <input
-                        className="plain-input"
-                        type="text"
-                        value={requestUrlDraft}
-                        onChange={(event) => onRequestUrlChange(event.target.value)}
-                      />
-                    </div>
-                    <div className="plain-field" aria-label="Request headers">
-                      <div className="kv-title">HEADERS</div>
-                      <div className="headers-grid">
-                        {requestHeadersDraft.length === 0 && <div className="empty">No headers</div>}
-                        {requestHeadersDraft.map((header, index) => (
-                          <div className="headers-row" key={`${header.name}-${index}`}>
-                            <input
-                              className="header-input header-name-input"
-                              type="text"
-                              value={header.name}
-                              onChange={(event) => onRequestHeaderNameChange(index, event.currentTarget.value)}
-                            />
-                            <textarea
-                              className="header-input header-value-input"
-                              rows={1}
-                              value={header.value}
-                              onChange={(event) =>
-                                onRequestHeaderValueChange(index, event.currentTarget.value, event.currentTarget)
-                              }
-                            />
+                    {requestView === 'headers' && (
+                      <>
+                        <div className="plain-field" aria-label="Request headers">
+                          <div className="kv-title">HEADERS</div>
+                          <div className="headers-grid">
+                            {requestHeadersDraft.length === 0 && <div className="empty">No headers</div>}
+                            {requestHeadersDraft.map((header, index) => (
+                              <div className="headers-row" key={`${header.name}-${index}`}>
+                                <div className="header-name header-cell">{header.name}</div>
+                                <div className="header-value header-cell">{header.value || '—'}</div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        </div>
+                      </>
+                    )}
+                    {requestView === 'query' && (
+                      <div className="plain-field" aria-label="Request query">
+                        <div className="headers-grid">
+                          {requestQueryEntries.length === 0 && <div className="empty">No query parameters</div>}
+                          {requestQueryEntries.map((pair, index) => (
+                            <div className="headers-row" key={`${pair.name}-${index}`}>
+                              <div className="header-name header-cell">{pair.name}</div>
+                              <div className="header-value header-cell">{pair.value || '—'}</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    {requestDisplayBody && requestDisplayBody.length > 0 && (
+                    )}
+                    {requestView === 'body' && (
                       <div className="plain-field" aria-label="Request body">
-                        <div className="kv-title">BODY</div>
-                        <pre className="plain-pre">{requestBodyText}</pre>
+                        {requestDisplayBody && requestDisplayBody.length > 0 ? (
+                          <pre className="plain-pre">{requestBodyText}</pre>
+                        ) : (
+                          <div className="empty">No body</div>
+                        )}
+                      </div>
+                    )}
+                    {requestView === 'raw' && (
+                      <div className="plain-field" aria-label="Request raw">
+                        <pre className="plain-pre">{requestRawText || '—'}</pre>
+                      </div>
+                    )}
+                    {requestView === 'summary' && (
+                      <div className="plain-field" aria-label="Request summary">
+                        <div className="performance-metrics">
+                          {requestSummaryItems.map((item) => (
+                            <div className="metric-row" key={item.label}>
+                              <div className="metric-label">{item.label}</div>
+                              <div className="metric-value">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -246,41 +304,47 @@ function InterceptView({
                 </button>
                 {!responseCollapsed && (
                   <div className="detail-body request-body">
-                    <div className="plain-field" aria-label="Response status">
-                      <div className="kv-title">STATUS</div>
-                      <div className="plain-text">{selected.status ?? '—'}</div>
+                    <div className="view-tabs" role="tablist" aria-label="Response view tabs">
+                      {responseTabs.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          className={`view-tab ${responseView === tab.id ? 'active' : ''}`}
+                          onClick={() => onResponseViewChange(tab.id)}
+                          role="tab"
+                          aria-selected={responseView === tab.id}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
                     </div>
-                    <div className="plain-field" aria-label="Response headers">
-                      <div className="kv-title">HEADERS</div>
-                      <div className="headers-grid">
-                        {headersToList(selected.responseHeaders).length === 0 && <div className="empty">No headers</div>}
-                        {headersToList(selected.responseHeaders).map(([key, value]) => (
-                          <div className="headers-row" key={key}>
-                            <div className="header-name header-cell">{key}</div>
-                            <div className="header-value header-cell">{String(value)}</div>
+                    {responseView === 'headers' && (
+                      <>
+                        <div className="plain-field" aria-label="Response headers">
+                          <div className="kv-title">HEADERS</div>
+                          <div className="headers-grid">
+                            {headersToList(selected.responseHeaders).length === 0 && (
+                              <div className="empty">No headers</div>
+                            )}
+                            {headersToList(selected.responseHeaders).map(([key, value]) => (
+                              <div className="headers-row" key={key}>
+                                <div className="header-name header-cell">{key}</div>
+                                <div className="header-value header-cell">{String(value)}</div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        </div>
+                      </>
+                    )}
+                    {responseView === 'query' && (
+                      <div className="plain-field" aria-label="Response query">
+                        <div className="empty">No query parameters</div>
                       </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-              {selected.responseBody && selected.responseBody.length > 0 && (
-                <div className="detail-section">
-                  <button className="detail-header" onClick={onToggleResponseBody} type="button">
-                    <span className="icon" aria-hidden="true">
-                      <i className={`fa-solid fa-caret-${responseBodyCollapsed ? 'right' : 'down'}`}></i>
-                    </span>
-                    <div className="detail-title">
-                      <div className="detail-kicker">RESPONSE BODY</div>
-                      <div className="detail-line">Payload</div>
-                    </div>
-                  </button>
-                  {!responseBodyCollapsed && (
-                    <div className="detail-body" aria-label="Response body">
-                      <div className="plain-field">
-                        <div className="kv-title kv-title-row">
-                          <span>BODY</span>
+                    )}
+                    {responseView === 'body' && (
+                      <div className="plain-field" aria-label="Response body">
+                        <div className="kv-title-row">
+                          <span className="kv-title">BODY</span>
                           <div className="kv-actions">
                             {isPrettyPrintableResponse && (
                               <label className="toggle-field">
@@ -303,99 +367,33 @@ function InterceptView({
                             </button>
                           </div>
                         </div>
-                        {prismLanguage ? (
-                          <pre className={`plain-pre code-view prism-code language-${prismLanguage}`}>
-                            <code dangerouslySetInnerHTML={{ __html: prismHtml || ' ' }} />
-                          </pre>
+                        {responseBodyText ? (
+                          prismLanguage ? (
+                            <pre className={`plain-pre code-view prism-code language-${prismLanguage}`}>
+                              <code dangerouslySetInnerHTML={{ __html: prismHtml || ' ' }} />
+                            </pre>
+                          ) : (
+                            <pre className="plain-pre code-view">{responseBodyText}</pre>
+                          )
                         ) : (
-                          <pre className="plain-pre code-view">{responseBodyText}</pre>
+                          <div className="empty">No body</div>
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="detail-section">
-                <button className="detail-header" onClick={onTogglePerformance} type="button">
-                  <span className="icon" aria-hidden="true">
-                    <i className={`fa-solid fa-caret-${performanceCollapsed ? 'right' : 'down'}`}></i>
-                  </span>
-                  <div className="detail-title">
-                    <div className="detail-kicker">PERFORMANCE</div>
-                    <div className="detail-line">Performance overview</div>
-                  </div>
-                </button>
-                {!performanceCollapsed && (
-                  <div className="detail-body performance-view" aria-label="Performance overview">
-                    {performanceData && (
-                      <div className="performance-metrics">
-                        <div className="metric-row">
-                          <div className="metric-label">Captured</div>
-                          <div className="metric-value">{performanceData.capturedAt}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Duration</div>
-                          <div className="metric-value">{formatMs(performanceData.durationMs)}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Request Size</div>
-                          <div className="metric-value">
-                            {formatBytes(performanceData.requestSize)}
-                            {performanceData.requestDecodedSize
-                              ? ` (decoded ${formatBytes(performanceData.requestDecodedSize)})`
-                              : ''}
-                            {performanceData.requestSizeSource ? ` (${performanceData.requestSizeSource})` : ''}
-                          </div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Response Size</div>
-                          <div className="metric-value">
-                            {formatBytes(performanceData.responseSize)}
-                            {performanceData.responseDecodedSize
-                              ? ` (decoded ${formatBytes(performanceData.responseDecodedSize)})`
-                              : ''}
-                            {performanceData.responseSizeSource ? ` (${performanceData.responseSizeSource})` : ''}
-                          </div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Encoding</div>
-                          <div className="metric-value">
-                            Req {performanceData.requestEncoding} · Res {performanceData.responseEncoding}
-                          </div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Compression</div>
-                          <div className="metric-value">
-                            {performanceData.compressionSummary} · Potential {performanceData.potentialCompression}
-                          </div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Cacheable</div>
-                          <div className="metric-value">{performanceData.cacheable}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Cache-Control</div>
-                          <div className="metric-value">{performanceData.cacheControl}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">ETag</div>
-                          <div className="metric-value">{performanceData.etag}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Last-Modified</div>
-                          <div className="metric-value">{performanceData.lastModified}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Expires</div>
-                          <div className="metric-value">{performanceData.expires}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Age</div>
-                          <div className="metric-value">{performanceData.age}</div>
-                        </div>
-                        <div className="metric-row">
-                          <div className="metric-label">Content-Type</div>
-                          <div className="metric-value">{performanceData.contentType}</div>
+                    )}
+                    {responseView === 'raw' && (
+                      <div className="plain-field" aria-label="Response raw">
+                        <pre className="plain-pre">{responseRawText || '—'}</pre>
+                      </div>
+                    )}
+                    {responseView === 'summary' && (
+                      <div className="plain-field" aria-label="Response summary">
+                        <div className="performance-metrics">
+                          {responseSummaryItems.map((item) => (
+                            <div className="metric-row" key={item.label}>
+                              <div className="metric-label">{item.label}</div>
+                              <div className="metric-value">{item.value}</div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
