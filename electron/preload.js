@@ -47,4 +47,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),
   showTrafficContextMenu: (entryId) => ipcRenderer.invoke('proxy:traffic-context-menu', entryId),
+  getMcpEnabled: () => ipcRenderer.invoke('mcp:get-enabled'),
+  setMcpEnabled: (enabled) => ipcRenderer.invoke('mcp:set-enabled', enabled),
+  getMcpAgentConfig: () => ipcRenderer.invoke('mcp:get-agent-config'),
+  mcpListRequests: (filter) => ipcRenderer.invoke('mcp:list-requests', filter),
+  mcpGetRequestDetails: (requestId) => ipcRenderer.invoke('mcp:get-request-details', requestId),
+  mcpAggregate: (groupBy, filter) => ipcRenderer.invoke('mcp:aggregate', groupBy, filter),
+  mcpAddAnnotation: (annotation) => ipcRenderer.invoke('mcp:add-annotation', annotation),
+  mcpListAnnotations: (requestId) => ipcRenderer.invoke('mcp:list-annotations', requestId),
 });

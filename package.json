@@ -12,7 +12,9 @@
     "test:coverage": "vitest run --coverage",
     "start": "npm run electron:build && electron .",
     "electron:build": "tsc -p electron/tsconfig.json",
-    "electron:watch": "tsc -p electron/tsconfig.json -w"
+    "electron:watch": "tsc -p electron/tsconfig.json -w",
+    "bridge:build": "tsc -p packages/mcp-bridge/tsconfig.json",
+    "bridge": "npm run bridge:build && node packages/mcp-bridge/dist/cli.js"
   },
   "keywords": [],
   "author": "",

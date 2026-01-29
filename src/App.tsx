@@ -43,6 +43,8 @@ function App() {
   const [requestHeadersDraft, setRequestHeadersDraft] = useState<RequestHeaderDraft[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [proxyPort, setProxyPort] = useState(8000);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [mcpAgentConfig, setMcpAgentConfig] = useState('');
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
   const tableRef = useRef<HTMLDivElement | null>(null);
@@ -170,6 +172,22 @@ function App() {
       });
     }
 
+    if (api?.getMcpEnabled) {
+      api.getMcpEnabled().then((enabled) => {
+        if (typeof enabled === 'boolean') {
+          setMcpEnabled(enabled);
+        }
+      });
+    }
+
+    if (api?.getMcpAgentConfig) {
+      api.getMcpAgentConfig().then((config) => {
+        if (typeof config === 'string') {
+          setMcpAgentConfig(config);
+        }
+      });
+    }
+
     if (api?.onCaReady) {
       offCaReady = api.onCaReady((path) => {
         setCaPath(path);
@@ -189,6 +207,15 @@ function App() {
       offPortReady?.();
     };
   }, []);
+
+  const handleMcpToggle = async (enabled: boolean) => {
+    const next = await window.electronAPI?.setMcpEnabled?.(enabled);
+    if (typeof next === 'boolean') {
+      setMcpEnabled(next);
+    } else {
+      setMcpEnabled(enabled);
+    }
+  };
 
   useEffect(() => {
     setRequestCollapsed(false);
@@ -624,11 +651,14 @@ function App() {
       )}
 
       {activeTab === 'setup' && (
-        <SetupView
-          proxyPort={proxyPort}
-          caPath={caPath}
-          onExportCa={() => window.electronAPI?.exportCaCertificate?.()}
-        />
+          <SetupView
+            proxyPort={proxyPort}
+            caPath={caPath}
+            onExportCa={() => window.electronAPI?.exportCaCertificate?.()}
+            mcpEnabled={mcpEnabled}
+            mcpAgentConfig={mcpAgentConfig}
+            onToggleMcp={handleMcpToggle}
+          />
       )}
 
       {activeTab === 'rules' && (

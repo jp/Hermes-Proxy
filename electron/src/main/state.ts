@@ -1,4 +1,6 @@
 import type { ProxyEntry, Rule } from './types';
+import { getMcpService } from './mcp';
+import { proxyEntryFromDetails } from './mcp/adapters';
 import { HISTORY_LIMIT, PROXY_PORT_START } from './constants';
 
 const entries: ProxyEntry[] = [];
@@ -19,7 +21,13 @@ export const clearEntries = () => {
   entries.splice(0, entries.length);
 };
 
-export const getEntryById = (entryId: string) => entries.find((entry) => entry.id === entryId);
+export const getEntryById = (entryId: string) => {
+  const inMemory = entries.find((entry) => entry.id === entryId);
+  if (inMemory) return inMemory;
+  const service = getMcpService();
+  const details = service?.getRequestDetails(entryId);
+  return details ? proxyEntryFromDetails(details) : undefined;
+};
 
 export const getRules = () => rules;
 

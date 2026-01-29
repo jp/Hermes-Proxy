@@ -42,6 +42,14 @@ interface ElectronApi {
   showTrafficContextMenu?: (entryId: string) => void;
   exportCaCertificate?: () => void;
   saveResponseBody?: (payload: SaveBodyPayload) => void;
+  getMcpEnabled?: () => Promise<boolean>;
+  setMcpEnabled?: (enabled: boolean) => Promise<boolean>;
+  getMcpAgentConfig?: () => Promise<string>;
+  mcpListRequests?: (filter?: unknown) => Promise<unknown[]>;
+  mcpGetRequestDetails?: (requestId: string) => Promise<unknown>;
+  mcpAggregate?: (groupBy: string, filter?: unknown) => Promise<unknown[]>;
+  mcpAddAnnotation?: (annotation: unknown) => Promise<boolean>;
+  mcpListAnnotations?: (requestId: string) => Promise<unknown[]>;
 }
 
 declare global {

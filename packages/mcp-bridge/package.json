@@ -1,0 +1,13 @@
+{
+  "name": "@hermes/mcp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/cli.js",
+  "bin": {
+    "hermes-mcp-bridge": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/*.js"
+  }
+}

@@ -1,9 +1,17 @@
 import { BrowserWindow } from 'electron';
 import type { ProxyEntry, Rule } from './types';
 import { addEntry, getCaCertPath, getProxyPort } from './state';
+import { getMcpEnabled, getMcpService } from './mcp';
 
 export const broadcastEntry = (entry: ProxyEntry) => {
   addEntry(entry);
+  try {
+    if (getMcpEnabled()) {
+      getMcpService()?.ingestProxyEntry(entry);
+    }
+  } catch (err) {
+    console.error('Failed to ingest entry into MCP store', err);
+  }
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('proxy-entry', entry);
   });

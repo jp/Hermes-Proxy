@@ -34,10 +34,5 @@ export const sanitizeHeaders = (headers: HeaderMap = {}, options: { stripContent
 export const buildReplayHeaders = (entryHeaders: HeaderMap, overrides?: Array<{ name: string; value: string }>) => {
   const list = overrides;
   if (!Array.isArray(list)) return entryHeaders || {};
-  return list.reduce<HeaderMap>((acc, item) => {
-    const name = String(item?.name || '').trim();
-    if (!name) return acc;
-    acc[name] = String(item?.value ?? '');
-    return acc;
-  }, {});
+  return applyHeaderOverrides(entryHeaders || {}, list);
 };

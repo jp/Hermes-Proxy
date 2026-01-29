@@ -16,13 +16,52 @@ import {
   clearEntries,
   getRulesFilePath,
 } from './state';
+import { getMcpEnabled, getMcpService, setMcpEnabled } from './mcp';
+import { HISTORY_LIMIT } from './constants';
+import type { AggregationGroupBy } from './mcp/types';
+import { getBridgeInfoPath } from './mcp/bridgeServer';
 import { getDefaultRulesPath, loadRulesFromFile, normalizeRules, persistRules } from './rules';
 import { showTrafficContextMenu } from './menu';
 
 export const registerIpcHandlers = () => {
+  const buildMcpAgentConfig = () =>
+    JSON.stringify(
+      {
+        name: 'Hermes MCP',
+        transport: 'stdio',
+        command: 'hermes-mcp-bridge',
+        args: ['--info', getBridgeInfoPath()],
+      },
+      null,
+      2
+    );
+
+  ipcMain.handle('mcp:get-enabled', () => getMcpEnabled());
+  ipcMain.handle('mcp:set-enabled', (_event, enabled) => setMcpEnabled(Boolean(enabled)));
+  ipcMain.handle('mcp:get-agent-config', () => buildMcpAgentConfig());
+  ipcMain.handle('mcp:list-requests', (_event, filter) => getMcpService()?.listRequests(filter) ?? []);
+  ipcMain.handle('mcp:get-request-details', (_event, requestId) =>
+    requestId ? getMcpService()?.getRequestDetails(requestId) ?? null : null
+  );
+  ipcMain.handle('mcp:aggregate', (_event, groupBy: AggregationGroupBy, filter) =>
+    getMcpService()?.aggregateRequests(groupBy, filter) ?? []
+  );
+  ipcMain.handle('mcp:add-annotation', (_event, annotation) => {
+    if (!annotation) return false;
+    getMcpService()?.addAnnotation(annotation);
+    return true;
+  });
+  ipcMain.handle('mcp:list-annotations', (_event, requestId) =>
+    requestId ? getMcpService()?.listAnnotations(requestId) ?? [] : []
+  );
+
   ipcMain.handle('proxy:get-port', () => getProxyPort());
 
-  ipcMain.handle('proxy:get-history', () => getEntries());
+  ipcMain.handle('proxy:get-history', () => {
+    const mcp = getMcpService();
+    if (!mcp) return getEntries();
+    return mcp.listProxyEntries({ limit: HISTORY_LIMIT });
+  });
   ipcMain.handle('proxy:get-ca', () => ({ caCertPath: getCaCertPath() }));
   ipcMain.handle('proxy:get-rules', () => getRules());
   ipcMain.handle('proxy:set-rules', (_event, nextRules) => {
@@ -110,6 +149,11 @@ export const registerIpcHandlers = () => {
   });
   ipcMain.handle('proxy:clear-traffic', () => {
     clearEntries();
+    try {
+      getMcpService()?.clearAll();
+    } catch (err) {
+      console.error('Failed to clear MCP store', err);
+    }
     broadcastClearTraffic();
     return true;
   });
