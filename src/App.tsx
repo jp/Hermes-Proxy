@@ -193,8 +193,6 @@ function App() {
   useEffect(() => {
     setRequestCollapsed(false);
     setResponseCollapsed(false);
-    setRequestView('headers');
-    setResponseView('headers');
   }, [selectedId]);
 
   useEffect(() => {
