@@ -1,7 +1,14 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import forge from 'node-forge';
 import { CA_EXTENSIONS, CA_SUBJECT } from './constants';
+import type {
+  CaCertificateDetails,
+  CertificateAttribute,
+  CertificateExtensionDetail,
+  CertificateExtensionSummary,
+} from './types';
 import { randomSerialNumber } from './utils';
 
 const getCertCommonName = (pemText: string) => {
@@ -12,6 +19,142 @@ const getCertCommonName = (pemText: string) => {
   } catch (err) {
     return null;
   }
+};
+
+const toHexPairs = (value: string) => {
+  const normalized = value.replace(/[^0-9a-f]/gi, '').toUpperCase();
+  if (!normalized) return '';
+  const pairs = normalized.match(/.{1,2}/g);
+  return pairs ? pairs.join(':') : normalized;
+};
+
+const stringToHexPairs = (value: string) => {
+  try {
+    return toHexPairs(forge.util.bytesToHex(value));
+  } catch (err) {
+    return '';
+  }
+};
+
+const formatFingerprint = (buffer: Buffer, algorithm: 'sha1' | 'sha256') =>
+  toHexPairs(crypto.createHash(algorithm).update(buffer).digest('hex'));
+
+const isPrintableText = (value: string) => /^[\x20-\x7E]+$/.test(value);
+
+const truncate = (value: string, max = 240) => (value.length > max ? `${value.slice(0, max)}...` : value);
+
+const stringifyValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^[0-9a-f]+$/i.test(trimmed) && trimmed.length % 2 === 0) {
+      return toHexPairs(trimmed);
+    }
+    if (isPrintableText(trimmed)) {
+      return truncate(trimmed);
+    }
+    const asHex = stringToHexPairs(trimmed);
+    return asHex || truncate(trimmed);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => stringifyValue(item)).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    try {
+      return truncate(JSON.stringify(value));
+    } catch (err) {
+      return '[unserializable]';
+    }
+  }
+  return String(value);
+};
+
+const mapAttributes = (attributes: any[]): CertificateAttribute[] =>
+  (attributes || [])
+    .map((attribute) => ({
+      name: String(attribute?.name || ''),
+      shortName: String(attribute?.shortName || ''),
+      oid: String(attribute?.type || ''),
+      value: String(attribute?.value || ''),
+    }))
+    .filter((attribute) => Boolean(attribute.value));
+
+const getExtensionDetails = (extension: any): CertificateExtensionDetail[] => {
+  if (!extension || typeof extension !== 'object') return [];
+  const details: CertificateExtensionDetail[] = [];
+  const ignored = new Set(['id', 'name', 'critical']);
+
+  Object.entries(extension).forEach(([key, value]) => {
+    if (ignored.has(key)) return;
+    const displayValue = stringifyValue(value);
+    if (!displayValue) return;
+    details.push({ key, value: displayValue });
+  });
+
+  return details;
+};
+
+const mapExtensions = (extensions: any[]): CertificateExtensionSummary[] =>
+  (extensions || []).map((extension) => ({
+    name: String(extension?.name || 'unknown'),
+    oid: String(extension?.id || ''),
+    critical: Boolean(extension?.critical),
+    details: getExtensionDetails(extension),
+  }));
+
+const toDecimalSerial = (serialHex: string) => {
+  if (!serialHex) return '';
+  try {
+    return BigInt(`0x${serialHex.replace(/[^0-9a-f]/gi, '')}`).toString(10);
+  } catch (err) {
+    return '';
+  }
+};
+
+const parseSignatureAlgorithm = (cert: any) => {
+  const oid = String(cert?.siginfo?.algorithmOid || cert?.signatureOid || '');
+  if (!oid) return '';
+  const name = (forge.pki.oids as Record<string, string | undefined>)[oid];
+  return name ? `${name} (${oid})` : oid;
+};
+
+const parsePublicKeyInfo = (cert: any) => {
+  const publicKey = cert?.publicKey;
+  let publicKeyAlgorithm = 'Unknown';
+  let publicKeyBits: number | null = null;
+  if (publicKey?.n && typeof publicKey.n.bitLength === 'function') {
+    publicKeyAlgorithm = 'RSA';
+    publicKeyBits = publicKey.n.bitLength();
+  }
+
+  let publicKeyFingerprintSha256 = '';
+  try {
+    const publicKeyAsn1 = forge.pki.publicKeyToAsn1(publicKey);
+    const publicKeyDer = forge.asn1.toDer(publicKeyAsn1).getBytes();
+    const publicKeyBuffer = Buffer.from(publicKeyDer, 'binary');
+    publicKeyFingerprintSha256 = formatFingerprint(publicKeyBuffer, 'sha256');
+  } catch (err) {
+    publicKeyFingerprintSha256 = '';
+  }
+
+  return {
+    publicKeyAlgorithm,
+    publicKeyBits,
+    publicKeyFingerprintSha256,
+  };
+};
+
+const parseIdentifierExtension = (cert: any, extensionName: string, fieldName: string) => {
+  const extension = cert?.getExtension?.(extensionName);
+  if (!extension) return '';
+  const rawValue = extension[fieldName];
+  if (typeof rawValue === 'string') {
+    if (/^[0-9a-f:]+$/i.test(rawValue)) return toHexPairs(rawValue);
+    return stringToHexPairs(rawValue) || rawValue;
+  }
+  return stringifyValue(rawValue);
 };
 
 export const ensureHermesCa = async (caDir: string) => {
@@ -64,6 +207,40 @@ export const pemToDer = (pemText: string) => {
   const b64 = match[1].replace(/\s+/g, '');
   try {
     return Buffer.from(b64, 'base64');
+  } catch (err) {
+    return null;
+  }
+};
+
+export const getCaCertificateDetails = (caCertPath: string): CaCertificateDetails | null => {
+  if (!caCertPath || !fs.existsSync(caCertPath)) return null;
+  try {
+    const pemText = fs.readFileSync(caCertPath, 'utf8');
+    const cert = forge.pki.certificateFromPem(pemText);
+    const derBuffer = pemToDer(pemText);
+    if (!derBuffer) return null;
+
+    const serialNumberHex = String(cert?.serialNumber || '').toUpperCase();
+    const { publicKeyAlgorithm, publicKeyBits, publicKeyFingerprintSha256 } = parsePublicKeyInfo(cert);
+
+    return {
+      subject: mapAttributes(cert?.subject?.attributes || []),
+      issuer: mapAttributes(cert?.issuer?.attributes || []),
+      serialNumberHex,
+      serialNumberDecimal: toDecimalSerial(serialNumberHex),
+      version: typeof cert?.version === 'number' ? cert.version + 1 : null,
+      validFrom: cert?.validity?.notBefore ? new Date(cert.validity.notBefore).toISOString() : '',
+      validTo: cert?.validity?.notAfter ? new Date(cert.validity.notAfter).toISOString() : '',
+      signatureAlgorithm: parseSignatureAlgorithm(cert),
+      fingerprintSha256: formatFingerprint(derBuffer, 'sha256'),
+      fingerprintSha1: formatFingerprint(derBuffer, 'sha1'),
+      publicKeyAlgorithm,
+      publicKeyBits,
+      publicKeyFingerprintSha256,
+      subjectKeyIdentifier: parseIdentifierExtension(cert, 'subjectKeyIdentifier', 'subjectKeyIdentifier'),
+      authorityKeyIdentifier: parseIdentifierExtension(cert, 'authorityKeyIdentifier', 'keyIdentifier'),
+      extensions: mapExtensions(cert?.extensions || []),
+    };
   } catch (err) {
     return null;
   }

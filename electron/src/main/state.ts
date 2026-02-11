@@ -1,12 +1,16 @@
-import type { ProxyEntry, Rule } from './types';
+import type { ProxyEntry, ProxySettings, Rule } from './types';
 import { HISTORY_LIMIT, PROXY_PORT_START } from './constants';
 
 const entries: ProxyEntry[] = [];
 let rules: Rule[] = [];
 let caCertPath: string | null = null;
-let proxyInstance: { close?: () => void } | null = null;
+let proxyInstance: { close?: (...args: any[]) => void } | null = null;
 let proxyPort = PROXY_PORT_START;
+let proxyHost = 'localhost';
 let rulesFilePath: string | null = null;
+let proxySettings: ProxySettings = {
+  listenOnAllInterfaces: true,
+};
 
 export const getEntries = () => entries;
 
@@ -35,7 +39,7 @@ export const setCaCertPath = (nextPath: string | null) => {
 
 export const getProxyInstance = () => proxyInstance;
 
-export const setProxyInstance = (nextInstance: { close?: () => void } | null) => {
+export const setProxyInstance = (nextInstance: { close?: (...args: any[]) => void } | null) => {
   proxyInstance = nextInstance;
 };
 
@@ -45,8 +49,20 @@ export const setProxyPort = (nextPort: number) => {
   proxyPort = nextPort;
 };
 
+export const getProxyHost = () => proxyHost;
+
+export const setProxyHost = (nextHost: string) => {
+  proxyHost = nextHost;
+};
+
 export const getRulesFilePath = () => rulesFilePath;
 
 export const setRulesFilePath = (nextPath: string | null) => {
   rulesFilePath = nextPath;
+};
+
+export const getProxySettings = (): ProxySettings => ({ ...proxySettings });
+
+export const setProxySettings = (nextSettings: ProxySettings) => {
+  proxySettings = nextSettings;
 };

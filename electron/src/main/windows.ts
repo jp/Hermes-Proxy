@@ -1,6 +1,6 @@
 import path from 'path';
 import { app, BrowserWindow } from 'electron';
-import { broadcastCaReady, broadcastPortReady } from './broadcast';
+import { broadcastCaReady, broadcastEndpointReady, broadcastPortReady } from './broadcast';
 import { getCaCertPath, getProxyPort } from './state';
 
 const getIconPath = () => path.join(app.getAppPath(), 'src/images/icon.png');
@@ -32,6 +32,7 @@ export const createMainWindow = () => {
   }
   if (getProxyPort()) {
     broadcastPortReady();
+    broadcastEndpointReady();
   }
 };
 

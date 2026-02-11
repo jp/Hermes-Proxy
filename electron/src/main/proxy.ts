@@ -3,11 +3,20 @@ import { app } from 'electron';
 import { Proxy as MitmProxy } from 'http-mitm-proxy';
 import { buildEntry } from './entries';
 import { ensureHermesCa } from './ca';
-import { broadcastCaReady, broadcastEntry, broadcastPortReady } from './broadcast';
+import { broadcastCaReady, broadcastEndpointReady, broadcastEntry, broadcastPortReady } from './broadcast';
 import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
+import { getLocalNetworkIp } from './network';
 import { buildRuleRequestInfo, matchRule } from './rules';
-import { getRules, setCaCertPath, setProxyInstance, setProxyPort } from './state';
+import {
+  getProxyInstance,
+  getProxySettings,
+  getRules,
+  setCaCertPath,
+  setProxyHost,
+  setProxyInstance,
+  setProxyPort,
+} from './state';
 import { isTimeoutError } from './utils';
 
 const toTargetUrl = (ctx: any) => {
@@ -23,6 +32,7 @@ export const startMitmProxy = async () => {
   const caDir = path.join(app.getPath('userData'), 'mitm-ca');
   await ensureHermesCa(caDir);
   const proxy = new MitmProxy();
+  const listenHost = getProxySettings().listenOnAllInterfaces ? '0.0.0.0' : '127.0.0.1';
 
   proxy.onError((ctx: any, err: unknown, kind: string) => {
     console.error('Proxy error', kind, err);
@@ -139,7 +149,7 @@ export const startMitmProxy = async () => {
       proxy.listen(
         {
           port,
-          host: '0.0.0.0',
+          host: listenHost,
           sslCaDir: caDir,
           forceSNI: true,
         },
@@ -165,11 +175,53 @@ export const startMitmProxy = async () => {
   }
 
   setProxyPort(port);
+  const displayHost = listenHost === '0.0.0.0' ? getLocalNetworkIp() || 'localhost' : 'localhost';
+  setProxyHost(displayHost);
   setProxyInstance(proxy);
   const caCertPath = path.join(caDir, 'certs', 'ca.pem');
   setCaCertPath(caCertPath);
-  console.log(`Hermes Proxy MITM listening on http://localhost:${port}`);
+  console.log(`Hermes Proxy MITM listening on http://${listenHost}:${port}`);
+  console.log(`Hermes Proxy endpoint for clients: http://${displayHost}:${port}`);
   console.log(`Root CA generated at: ${caCertPath}`);
   broadcastCaReady();
   broadcastPortReady();
+  broadcastEndpointReady();
+};
+
+export const stopMitmProxy = async () => {
+  const proxyInstance = getProxyInstance();
+  const closeProxy = proxyInstance?.close;
+  if (!closeProxy) {
+    setProxyInstance(null);
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    try {
+      if (closeProxy.length > 0) {
+        closeProxy(done);
+        setTimeout(done, 250);
+      } else {
+        closeProxy();
+        done();
+      }
+    } catch (err) {
+      console.error('Failed to stop MITM proxy', err);
+      done();
+    }
+  });
+
+  setProxyInstance(null);
+};
+
+export const restartMitmProxy = async () => {
+  await stopMitmProxy();
+  await startMitmProxy();
 };

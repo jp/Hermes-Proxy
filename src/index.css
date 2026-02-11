@@ -333,6 +333,71 @@ body {
   line-height: 1.5;
 }
 
+.setup-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.9rem;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.setup-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #60a5fa;
+}
+
+.cert-details {
+  margin-top: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.45);
+  overflow: hidden;
+}
+
+.cert-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #e2e8f0;
+  padding: 0.65rem 0.8rem;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.cert-grid {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 0.8rem 0.9rem;
+}
+
+.cert-row {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.cert-label {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.cert-value {
+  color: #e2e8f0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.cert-extension-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
 .export-btn {
   background: linear-gradient(120deg, #38bdf8, #6366f1);
   border: none;
@@ -943,6 +1008,11 @@ tbody tr.selected {
 
   .details-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cert-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 
   .table-wrapper {

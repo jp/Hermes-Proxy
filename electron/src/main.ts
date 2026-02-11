@@ -2,8 +2,9 @@ import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './main/windows';
 import { registerIpcHandlers } from './main/ipc';
 import { getDefaultRulesPath, loadRulesFromFile } from './main/rules';
-import { setRules, getProxyInstance } from './main/state';
-import { startMitmProxy } from './main/proxy';
+import { loadProxySettings } from './main/settings';
+import { setRules, setProxySettings } from './main/state';
+import { startMitmProxy, stopMitmProxy } from './main/proxy';
 
 registerIpcHandlers();
 
@@ -15,6 +16,12 @@ app.whenReady().then(() => {
     }
   } catch (err) {
     console.error('Failed to load rules', err);
+  }
+
+  try {
+    setProxySettings(loadProxySettings());
+  } catch (err) {
+    console.error('Failed to load proxy settings', err);
   }
 
   startMitmProxy().catch((err) => {
@@ -37,5 +44,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  getProxyInstance()?.close?.();
+  void stopMitmProxy();
 });

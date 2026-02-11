@@ -23,7 +23,7 @@ import {
   summarizeCacheability,
 } from './utils/http';
 import { createRule } from './utils/rules';
-import type { PerformanceData, ProxyEntry, RequestHeaderDraft, Rule } from './types';
+import type { CaCertificateDetails, PerformanceData, ProxyEntry, RequestHeaderDraft, Rule } from './types';
 
 const MAX_ENTRIES = 20000;
 
@@ -31,6 +31,7 @@ function App() {
   const [entries, setEntries] = useState<ProxyEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [caPath, setCaPath] = useState('');
+  const [caDetails, setCaDetails] = useState<CaCertificateDetails | null>(null);
   const [activeTab, setActiveTab] = useState('intercept');
   const [autoScroll, setAutoScroll] = useState(true);
   const [requestCollapsed, setRequestCollapsed] = useState(false);
@@ -42,7 +43,10 @@ function App() {
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
   const [requestHeadersDraft, setRequestHeadersDraft] = useState<RequestHeaderDraft[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [proxyHost, setProxyHost] = useState('localhost');
   const [proxyPort, setProxyPort] = useState(8000);
+  const [listenOnAllInterfaces, setListenOnAllInterfaces] = useState(true);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
   const tableRef = useRef<HTMLDivElement | null>(null);
@@ -153,12 +157,18 @@ function App() {
     const api = window.electronAPI;
     let offCaReady;
     let offPortReady;
+    let offEndpointReady;
 
     if (api?.getCaCertificate) {
       api.getCaCertificate().then((info) => {
         if (info?.caCertPath) {
           setCaPath(info.caCertPath);
         }
+      });
+    }
+    if (api?.getCaCertificateDetails) {
+      api.getCaCertificateDetails().then((details) => {
+        setCaDetails(details || null);
       });
     }
 
@@ -169,10 +179,30 @@ function App() {
         }
       });
     }
+    if (api?.getProxyEndpoint) {
+      api.getProxyEndpoint().then((endpoint) => {
+        if (endpoint?.host) {
+          setProxyHost(endpoint.host);
+        }
+        if (endpoint?.port) {
+          setProxyPort(endpoint.port);
+        }
+      });
+    }
+    if (api?.getProxySettings) {
+      api.getProxySettings().then((settings) => {
+        if (typeof settings?.listenOnAllInterfaces === 'boolean') {
+          setListenOnAllInterfaces(settings.listenOnAllInterfaces);
+        }
+      });
+    }
 
     if (api?.onCaReady) {
       offCaReady = api.onCaReady((path) => {
         setCaPath(path);
+        api.getCaCertificateDetails?.().then((details) => {
+          setCaDetails(details || null);
+        });
       });
     }
 
@@ -183,10 +213,21 @@ function App() {
         }
       });
     }
+    if (api?.onProxyEndpointReady) {
+      offEndpointReady = api.onProxyEndpointReady((endpoint) => {
+        if (endpoint?.host) {
+          setProxyHost(endpoint.host);
+        }
+        if (endpoint?.port) {
+          setProxyPort(endpoint.port);
+        }
+      });
+    }
 
     return () => {
       offCaReady?.();
       offPortReady?.();
+      offEndpointReady?.();
     };
   }, []);
 
@@ -259,6 +300,37 @@ function App() {
 
   const handleLoadRules = async () => {
     await window.electronAPI?.loadRules?.();
+  };
+
+  const handleListenOnAllInterfacesChange = async (enabled: boolean) => {
+    const api = window.electronAPI;
+    const previousValue = listenOnAllInterfaces;
+    setListenOnAllInterfaces(enabled);
+    if (!api?.setProxySettings) return;
+
+    setSettingsBusy(true);
+    try {
+      const result = await api.setProxySettings({ listenOnAllInterfaces: enabled });
+      if (typeof result?.settings?.listenOnAllInterfaces === 'boolean') {
+        setListenOnAllInterfaces(result.settings.listenOnAllInterfaces);
+      }
+      if (typeof result?.proxyPort === 'number' && result.proxyPort > 0) {
+        setProxyPort(result.proxyPort);
+      }
+      const endpoint = await api.getProxyEndpoint?.();
+      if (endpoint?.host) {
+        setProxyHost(endpoint.host);
+      }
+      if (typeof endpoint?.port === 'number' && endpoint.port > 0) {
+        setProxyPort(endpoint.port);
+      }
+      const details = await api.getCaCertificateDetails?.();
+      setCaDetails(details || null);
+    } catch {
+      setListenOnAllInterfaces(previousValue);
+    } finally {
+      setSettingsBusy(false);
+    }
   };
 
   const handleAddRule = () => {
@@ -572,6 +644,7 @@ function App() {
           selectedId={selectedId}
           onSelectEntry={setSelectedId}
           onShowContextMenu={(entryId) => window.electronAPI?.showTrafficContextMenu?.(entryId)}
+          proxyHost={proxyHost}
           proxyPort={proxyPort}
           isResizing={isResizing}
           splitPercent={splitPercent}
@@ -625,7 +698,11 @@ function App() {
         <SetupView
           proxyPort={proxyPort}
           caPath={caPath}
+          caDetails={caDetails}
           onExportCa={() => window.electronAPI?.exportCaCertificate?.()}
+          listenOnAllInterfaces={listenOnAllInterfaces}
+          onListenOnAllInterfacesChange={handleListenOnAllInterfacesChange}
+          settingsBusy={settingsBusy}
         />
       )}
 

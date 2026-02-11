@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron';
 import type { ProxyEntry, Rule } from './types';
-import { addEntry, getCaCertPath, getProxyPort } from './state';
+import { addEntry, getCaCertPath, getProxyHost, getProxyPort } from './state';
 
 export const broadcastEntry = (entry: ProxyEntry) => {
   addEntry(entry);
@@ -21,6 +21,16 @@ export const broadcastPortReady = () => {
   const proxyPort = getProxyPort();
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('proxy-port-ready', proxyPort);
+  });
+};
+
+export const broadcastEndpointReady = () => {
+  const payload = {
+    host: getProxyHost(),
+    port: getProxyPort(),
+  };
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('proxy-endpoint-ready', payload);
   });
 };
 

@@ -2,6 +2,7 @@ export const HISTORY_LIMIT = 500;
 export const PROXY_PORT_START = 8000;
 export const RULE_TIMEOUT_MS = 30000;
 export const RULES_FILENAME = 'rules.json';
+export const SETTINGS_FILENAME = 'settings.json';
 
 export const CA_SUBJECT = [
   { name: 'commonName', value: 'HermesProxyCA' },

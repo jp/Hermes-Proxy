@@ -1,12 +1,31 @@
 import React from 'react';
+import type { CaCertificateDetails } from '../../types';
 
 type SetupViewProps = {
   proxyPort: number;
   caPath: string;
+  caDetails: CaCertificateDetails | null;
   onExportCa: () => void;
+  listenOnAllInterfaces: boolean;
+  onListenOnAllInterfacesChange: (enabled: boolean) => void;
+  settingsBusy: boolean;
 };
 
-function SetupView({ proxyPort, caPath, onExportCa }: SetupViewProps) {
+function SetupView({
+  proxyPort,
+  caPath,
+  caDetails,
+  onExportCa,
+  listenOnAllInterfaces,
+  onListenOnAllInterfacesChange,
+  settingsBusy,
+}: SetupViewProps) {
+  const proxyHost = listenOnAllInterfaces ? '0.0.0.0' : 'localhost';
+  const formatIdentity = (items: CaCertificateDetails['subject']) =>
+    items.map((item) => `${item.shortName || item.name || item.oid}=${item.value}`).join(', ');
+  const subjectIdentity = caDetails ? formatIdentity(caDetails.subject) : '';
+  const issuerIdentity = caDetails ? formatIdentity(caDetails.issuer) : '';
+
   return (
     <div className="app single">
       <section className="panel">
@@ -19,8 +38,19 @@ function SetupView({ proxyPort, caPath, onExportCa }: SetupViewProps) {
             <strong>1. Send traffic via Hermes Proxy</strong>
             <br />
             To intercept an HTTP client on this machine, configure it to send traffic via{' '}
-            <code>{`http://localhost:${proxyPort}`}</code>.
+            <code>{`http://${proxyHost}:${proxyPort}`}</code>.
           </p>
+          <label className="setup-checkbox">
+            <input
+              type="checkbox"
+              checked={listenOnAllInterfaces}
+              disabled={settingsBusy}
+              onChange={(event) => onListenOnAllInterfacesChange(event.target.checked)}
+            />
+            <span>
+              Listen on all interfaces (<code>0.0.0.0</code>) for remote clients
+            </span>
+          </label>
           <p>
             Most tools can be configured to do so by using the above address as an HTTP or HTTPS proxy. You can also
             forcibly reroute traffic using networking tools like <code>iptables</code>.
@@ -53,6 +83,93 @@ function SetupView({ proxyPort, caPath, onExportCa }: SetupViewProps) {
             <div className="hint">
               CA location: <code>{caPath}</code>
             </div>
+          )}
+          {caDetails && (
+            <details className="cert-details">
+              <summary>Certificate details</summary>
+              <div className="cert-grid">
+                <div className="cert-row">
+                  <div className="cert-label">Subject</div>
+                  <div className="cert-value">{subjectIdentity || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Issuer</div>
+                  <div className="cert-value">{issuerIdentity || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Serial (hex)</div>
+                  <div className="cert-value">{caDetails.serialNumberHex || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Serial (decimal)</div>
+                  <div className="cert-value">{caDetails.serialNumberDecimal || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Version</div>
+                  <div className="cert-value">{caDetails.version ?? '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Valid from</div>
+                  <div className="cert-value">{caDetails.validFrom || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Valid to</div>
+                  <div className="cert-value">{caDetails.validTo || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Signature algorithm</div>
+                  <div className="cert-value">{caDetails.signatureAlgorithm || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Fingerprint SHA-256</div>
+                  <div className="cert-value">{caDetails.fingerprintSha256 || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Fingerprint SHA-1</div>
+                  <div className="cert-value">{caDetails.fingerprintSha1 || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Public key</div>
+                  <div className="cert-value">
+                    {caDetails.publicKeyAlgorithm}
+                    {caDetails.publicKeyBits ? ` ${caDetails.publicKeyBits}-bit` : ''}
+                  </div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Public key fingerprint SHA-256</div>
+                  <div className="cert-value">{caDetails.publicKeyFingerprintSha256 || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Subject key identifier</div>
+                  <div className="cert-value">{caDetails.subjectKeyIdentifier || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Authority key identifier</div>
+                  <div className="cert-value">{caDetails.authorityKeyIdentifier || '—'}</div>
+                </div>
+                <div className="cert-row">
+                  <div className="cert-label">Extensions</div>
+                  <div className="cert-value">
+                    {caDetails.extensions.length ? (
+                      <ul className="cert-extension-list">
+                        {caDetails.extensions.map((extension) => (
+                          <li key={`${extension.oid}-${extension.name}`}>
+                            <strong>{extension.name}</strong>
+                            {extension.oid ? ` (${extension.oid})` : ''}
+                            {extension.critical ? ' [critical]' : ''}
+                            {extension.details.length
+                              ? `: ${extension.details.map((detail) => `${detail.key}=${detail.value}`).join(', ')}`
+                              : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      '—'
+                    )}
+                  </div>
+                </div>
+              </div>
+            </details>
           )}
         </div>
       </section>

@@ -2,17 +2,22 @@ import fs from 'fs';
 import path from 'path';
 import { app, dialog, ipcMain, shell } from 'electron';
 import { broadcastClearTraffic, broadcastRulesUpdated } from './broadcast';
-import { pemToDer } from './ca';
+import { getCaCertificateDetails, pemToDer } from './ca';
 import { exportAllEntriesAsHar, exportEntryAsHar, importHarFromFile } from './har';
+import { restartMitmProxy } from './proxy';
 import { repeatEntryRequest } from './replay';
+import { normalizeProxySettings, persistProxySettings } from './settings';
 import { createRequestEditorWindow } from './windows';
 import {
+  getProxySettings,
+  getProxyHost,
   getEntries,
   getEntryById,
   getProxyPort,
   getCaCertPath,
   getRules,
   setRules,
+  setProxySettings,
   clearEntries,
   getRulesFilePath,
 } from './state';
@@ -21,9 +26,47 @@ import { showTrafficContextMenu } from './menu';
 
 export const registerIpcHandlers = () => {
   ipcMain.handle('proxy:get-port', () => getProxyPort());
+  ipcMain.handle('proxy:get-endpoint', () => ({
+    host: getProxyHost(),
+    port: getProxyPort(),
+  }));
+  ipcMain.handle('proxy:get-settings', () => getProxySettings());
+  ipcMain.handle('proxy:set-settings', async (_event, nextSettings) => {
+    const current = getProxySettings();
+    const merged = normalizeProxySettings({
+      ...current,
+      ...(typeof nextSettings === 'object' && nextSettings ? nextSettings : {}),
+    });
+    const shouldRestart = merged.listenOnAllInterfaces !== current.listenOnAllInterfaces;
+    setProxySettings(merged);
+
+    try {
+      persistProxySettings(merged);
+    } catch (err) {
+      console.error('Failed to persist proxy settings', err);
+    }
+
+    if (shouldRestart) {
+      try {
+        await restartMitmProxy();
+      } catch (err) {
+        console.error('Failed to restart proxy after settings update', err);
+      }
+    }
+
+    return {
+      settings: getProxySettings(),
+      proxyPort: getProxyPort(),
+    };
+  });
 
   ipcMain.handle('proxy:get-history', () => getEntries());
   ipcMain.handle('proxy:get-ca', () => ({ caCertPath: getCaCertPath() }));
+  ipcMain.handle('proxy:get-ca-details', () => {
+    const caCertPath = getCaCertPath();
+    if (!caCertPath) return null;
+    return getCaCertificateDetails(caCertPath);
+  });
   ipcMain.handle('proxy:get-rules', () => getRules());
   ipcMain.handle('proxy:set-rules', (_event, nextRules) => {
     const normalized = normalizeRules(nextRules);

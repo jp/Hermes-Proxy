@@ -71,3 +71,45 @@ export interface RepeatRequestOverrides {
   method?: string;
   body?: string;
 }
+
+export interface ProxySettings {
+  listenOnAllInterfaces: boolean;
+}
+
+export interface CertificateAttribute {
+  name: string;
+  shortName: string;
+  oid: string;
+  value: string;
+}
+
+export interface CertificateExtensionDetail {
+  key: string;
+  value: string;
+}
+
+export interface CertificateExtensionSummary {
+  name: string;
+  oid: string;
+  critical: boolean;
+  details: CertificateExtensionDetail[];
+}
+
+export interface CaCertificateDetails {
+  subject: CertificateAttribute[];
+  issuer: CertificateAttribute[];
+  serialNumberHex: string;
+  serialNumberDecimal: string;
+  version: number | null;
+  validFrom: string;
+  validTo: string;
+  signatureAlgorithm: string;
+  fingerprintSha256: string;
+  fingerprintSha1: string;
+  publicKeyAlgorithm: string;
+  publicKeyBits: number | null;
+  publicKeyFingerprintSha256: string;
+  subjectKeyIdentifier: string;
+  authorityKeyIdentifier: string;
+  extensions: CertificateExtensionSummary[];
+}

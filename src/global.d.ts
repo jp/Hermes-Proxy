@@ -1,4 +1,4 @@
-import type { ProxyEntry, RequestHeaderDraft, Rule } from './types';
+import type { CaCertificateDetails, ProxyEntry, ProxySettings, RequestHeaderDraft, Rule } from './types';
 
 type AddRulePayload = {
   method?: string;
@@ -23,12 +23,19 @@ type RepeatRequestPayload = {
 interface ElectronApi {
   getHistory?: () => Promise<ProxyEntry[]>;
   getCaCertificate?: () => Promise<{ caCertPath?: string }>;
+  getCaCertificateDetails?: () => Promise<CaCertificateDetails | null>;
   getProxyPort?: () => Promise<number>;
+  getProxyEndpoint?: () => Promise<{ host: string; port: number }>;
+  getProxySettings?: () => Promise<ProxySettings>;
+  setProxySettings?: (
+    settings: Partial<ProxySettings>
+  ) => Promise<{ settings: ProxySettings; proxyPort: number } | undefined>;
   getRules?: () => Promise<Rule[]>;
   setRules?: (rules: Rule[]) => Promise<void> | void;
   onProxyEntry?: (cb: (entry: ProxyEntry) => void) => () => void;
   onCaReady?: (cb: (path: string) => void) => () => void;
   onProxyPortReady?: (cb: (port: number) => void) => () => void;
+  onProxyEndpointReady?: (cb: (endpoint: { host: string; port: number }) => void) => () => void;
   onClearTraffic?: (cb: () => void) => () => void;
   onAddRule?: (cb: (payload: AddRulePayload) => void) => () => void;
   onRulesUpdated?: (cb: (rules: Rule[]) => void) => () => void;

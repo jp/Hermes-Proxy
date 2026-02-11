@@ -9,6 +9,7 @@ type InterceptViewProps = {
   selectedId: string | null;
   onSelectEntry: (id: string) => void;
   onShowContextMenu: (entryId: string) => void;
+  proxyHost: string;
   proxyPort: number;
   isResizing: boolean;
   splitPercent: number;
@@ -61,6 +62,7 @@ function InterceptView({
   selectedId,
   onSelectEntry,
   onShowContextMenu,
+  proxyHost,
   proxyPort,
   isResizing,
   splitPercent,
@@ -129,7 +131,7 @@ function InterceptView({
         <section className="panel traffic-panel">
           <div className="header">
             <h1>Traffic</h1>
-            <span className="status-pill">Listening on :{proxyPort}</span>
+            <span className="status-pill">{`Listening on ${proxyHost}:${proxyPort}`}</span>
           </div>
           <div className="table-wrapper" ref={tableRef} onScroll={onTableScroll}>
             <table>

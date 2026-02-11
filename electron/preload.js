@@ -35,9 +35,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('proxy-port-ready', listener);
     return () => ipcRenderer.removeListener('proxy-port-ready', listener);
   },
+  onProxyEndpointReady: (callback) => {
+    const listener = (_event, endpoint) => callback(endpoint);
+    ipcRenderer.on('proxy-endpoint-ready', listener);
+    return () => ipcRenderer.removeListener('proxy-endpoint-ready', listener);
+  },
   getHistory: () => ipcRenderer.invoke('proxy:get-history'),
   getCaCertificate: () => ipcRenderer.invoke('proxy:get-ca'),
+  getCaCertificateDetails: () => ipcRenderer.invoke('proxy:get-ca-details'),
   getProxyPort: () => ipcRenderer.invoke('proxy:get-port'),
+  getProxyEndpoint: () => ipcRenderer.invoke('proxy:get-endpoint'),
+  getProxySettings: () => ipcRenderer.invoke('proxy:get-settings'),
+  setProxySettings: (settings) => ipcRenderer.invoke('proxy:set-settings', settings),
   repeatRequest: (payload) => ipcRenderer.invoke('proxy:repeat-request', payload),
   exportAllHar: () => ipcRenderer.invoke('proxy:export-all-har'),
   importHar: () => ipcRenderer.invoke('proxy:import-har'),
