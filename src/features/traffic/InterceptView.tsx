@@ -163,7 +163,9 @@ function InterceptView({
                     }}
                   >
                     <td>
-                      <span className="pill method">{entry.method}</span>
+                      <span className={`pill method method-${(entry.method || 'unknown').toLowerCase()}`}>
+                        {entry.method}
+                      </span>
                     </td>
                     <td>
                       <span className={`pill ${statusTone(entry.status)}`}>{entry.status ?? '—'}</span>

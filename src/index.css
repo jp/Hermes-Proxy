@@ -529,7 +529,43 @@ tbody tr.selected {
 }
 
 .method {
-  background: #a855f7;
+  background: #94a3b8;
+}
+
+.method-get {
+  background: #38bdf8;
+}
+
+.method-post {
+  background: #4ade80;
+}
+
+.method-put {
+  background: #facc15;
+}
+
+.method-delete {
+  background: #f87171;
+}
+
+.method-patch {
+  background: #fb923c;
+}
+
+.method-options {
+  background: #a78bfa;
+}
+
+.method-head {
+  background: #f472b6;
+}
+
+.method-trace {
+  background: #2dd4bf;
+}
+
+.method-connect {
+  background: #c084fc;
 }
 
 .status-ok {
