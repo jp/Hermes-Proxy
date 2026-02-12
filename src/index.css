@@ -297,6 +297,7 @@ body {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  position: relative;
 }
 
 .header {
@@ -504,6 +505,12 @@ td {
   text-align: left;
 }
 
+.col-time {
+  width: 6.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 tbody tr {
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease;
@@ -516,6 +523,44 @@ tbody tr:hover {
 tbody tr.selected {
   background: linear-gradient(120deg, rgba(59, 130, 246, 0.25), rgba(147, 51, 234, 0.25));
   transform: translateX(2px);
+}
+
+.header-context-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 170px;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  color: #e2e8f0;
+  transform: translateY(4px);
+}
+
+.header-context-menu .menu-title {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 0.1rem 0.3rem 0.4rem;
+}
+
+.header-context-menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.header-context-menu .menu-item:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.header-context-menu input[type='checkbox'] {
+  accent-color: #38bdf8;
 }
 
 .pill {

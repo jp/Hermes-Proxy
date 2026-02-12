@@ -107,6 +107,77 @@ function InterceptView({
   onRepeatRequest,
   onOpenRequestEditor,
 }: InterceptViewProps) {
+  type ColumnKey = 'time' | 'method' | 'status' | 'host' | 'path' | 'query';
+  const columnOrder: ColumnKey[] = ['time', 'method', 'status', 'host', 'path', 'query'];
+  const columnLabels: Record<ColumnKey, string> = {
+    time: 'Time',
+    method: 'Method',
+    status: 'Status',
+    host: 'Host',
+    path: 'Path',
+    query: 'Query',
+  };
+  const [visibleColumns, setVisibleColumns] = React.useState<Record<ColumnKey, boolean>>({
+    time: false,
+    method: true,
+    status: true,
+    host: true,
+    path: true,
+    query: true,
+  });
+  const [headerMenu, setHeaderMenu] = React.useState<{ open: boolean; x: number; y: number }>({
+    open: false,
+    x: 0,
+    y: 0,
+  });
+  const headerMenuRef = React.useRef<HTMLDivElement>(null);
+  const trafficPanelRef = React.useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    if (!headerMenu.open) return undefined;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (headerMenuRef.current && headerMenuRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setHeaderMenu((prev) => ({ ...prev, open: false }));
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHeaderMenu((prev) => ({ ...prev, open: false }));
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [headerMenu.open]);
+
+  const visibleColumnCount = columnOrder.reduce(
+    (count, key) => count + (visibleColumns[key] ? 1 : 0),
+    0,
+  );
+
+  const handleHeaderContextMenu = (event: React.MouseEvent<HTMLTableRowElement>) => {
+    event.preventDefault();
+    const panelRect = trafficPanelRef.current?.getBoundingClientRect();
+    const x = panelRect ? event.clientX - panelRect.left : event.clientX;
+    const y = panelRect ? event.clientY - panelRect.top : event.clientY;
+    setHeaderMenu({
+      open: true,
+      x,
+      y,
+    });
+  };
+
+  const toggleColumn = (key: ColumnKey) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      return Object.values(next).some(Boolean) ? next : prev;
+    });
+  };
+
   const requestTabs = [
     { id: 'headers', label: 'Header' },
     { id: 'query', label: 'Query' },
@@ -128,7 +199,7 @@ function InterceptView({
         ref={splitRef}
         style={{ gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` }}
       >
-        <section className="panel traffic-panel">
+        <section className="panel traffic-panel" ref={trafficPanelRef}>
           <div className="header">
             <h1>Traffic</h1>
             <span className="status-pill">{`Listening on ${proxyHost}:${proxyPort}`}</span>
@@ -136,18 +207,20 @@ function InterceptView({
           <div className="table-wrapper" ref={tableRef} onScroll={onTableScroll}>
             <table>
               <thead>
-                <tr>
-                  <th>Method</th>
-                  <th>Status</th>
-                  <th>Host</th>
-                  <th>Path</th>
-                  <th>Query</th>
+                <tr onContextMenu={handleHeaderContextMenu}>
+                  {columnOrder.map((key) =>
+                    visibleColumns[key] ? (
+                      <th key={key} className={key === 'time' ? 'col-time' : undefined}>
+                        {columnLabels[key]}
+                      </th>
+                    ) : null,
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filteredEntries.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="empty">
+                    <td colSpan={visibleColumnCount} className="empty">
                       {entries.length === 0 ? 'Waiting for traffic…' : 'No matches for this filter.'}
                     </td>
                   </tr>
@@ -162,22 +235,60 @@ function InterceptView({
                       onShowContextMenu(entry.id);
                     }}
                   >
-                    <td>
-                      <span className={`pill method method-${(entry.method || 'unknown').toLowerCase()}`}>
-                        {entry.method}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`pill ${statusTone(entry.status)}`}>{entry.status ?? '—'}</span>
-                    </td>
-                    <td>{entry.host}</td>
-                    <td>{entry.path}</td>
-                    <td>{entry.query || '—'}</td>
+                    {visibleColumns.time && (
+                      <td className="col-time">
+                        {entry.timestamp
+                          ? new Date(entry.timestamp).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                              fractionalSecondDigits: 3,
+                              hour12: false,
+                            })
+                          : '—'}
+                      </td>
+                    )}
+                    {visibleColumns.method && (
+                      <td>
+                        <span className={`pill method method-${(entry.method || 'unknown').toLowerCase()}`}>
+                          {entry.method}
+                        </span>
+                      </td>
+                    )}
+                    {visibleColumns.status && (
+                      <td>
+                        <span className={`pill ${statusTone(entry.status)}`}>{entry.status ?? '—'}</span>
+                      </td>
+                    )}
+                    {visibleColumns.host && <td>{entry.host}</td>}
+                    {visibleColumns.path && <td>{entry.path}</td>}
+                    {visibleColumns.query && <td>{entry.query || '—'}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {headerMenu.open && (
+            <div
+              className="header-context-menu"
+              ref={headerMenuRef}
+              style={{ left: headerMenu.x, top: headerMenu.y }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <div className="menu-title">Columns</div>
+              {columnOrder.map((key) => (
+                <label key={key} className="menu-item">
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns[key]}
+                    onChange={() => toggleColumn(key)}
+                  />
+                  <span>{columnLabels[key]}</span>
+                </label>
+              ))}
+            </div>
+          )}
         </section>
 
         <div
