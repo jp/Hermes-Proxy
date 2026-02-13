@@ -6,9 +6,14 @@ type InterceptViewProps = {
   entries: ProxyEntry[];
   filteredEntries: ProxyEntry[];
   selected: ProxyEntry | null;
-  selectedId: string | null;
-  onSelectEntry: (id: string) => void;
-  onShowContextMenu: (entryId: string) => void;
+  selectedIds: string[];
+  onSelectEntry: (
+    id: string,
+    modifiers: { ctrl: boolean; shift: boolean; meta: boolean },
+    orderedIds: string[],
+  ) => void;
+  onSelectAll: (ids: string[]) => void;
+  onShowContextMenu: (entryIds: string[]) => void;
   proxyHost: string;
   proxyPort: number;
   isResizing: boolean;
@@ -59,8 +64,9 @@ function InterceptView({
   entries,
   filteredEntries,
   selected,
-  selectedId,
+  selectedIds,
   onSelectEntry,
+  onSelectAll,
   onShowContextMenu,
   proxyHost,
   proxyPort,
@@ -154,6 +160,19 @@ function InterceptView({
     };
   }, [headerMenu.open]);
 
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+      event.preventDefault();
+      onSelectAll(filteredEntries.map((entry) => entry.id));
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredEntries, onSelectAll]);
+
   const visibleColumnCount = columnOrder.reduce(
     (count, key) => count + (visibleColumns[key] ? 1 : 0),
     0,
@@ -228,11 +247,25 @@ function InterceptView({
                 {filteredEntries.map((entry) => (
                   <tr
                     key={entry.id}
-                    className={selectedId === entry.id ? 'selected' : ''}
-                    onClick={() => onSelectEntry(entry.id)}
+                    className={selectedIds.includes(entry.id) ? 'selected' : ''}
+                    onClick={(event) =>
+                      onSelectEntry(
+                        entry.id,
+                        { ctrl: event.ctrlKey, shift: event.shiftKey, meta: event.metaKey },
+                        filteredEntries.map((row) => row.id),
+                      )
+                    }
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      onShowContextMenu(entry.id);
+                      const isSelected = selectedIds.includes(entry.id);
+                      if (!isSelected) {
+                        onSelectEntry(
+                          entry.id,
+                          { ctrl: false, shift: false, meta: false },
+                          filteredEntries.map((row) => row.id),
+                        );
+                      }
+                      onShowContextMenu(isSelected ? selectedIds : [entry.id]);
                     }}
                   >
                     {visibleColumns.time && (

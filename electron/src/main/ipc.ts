@@ -189,8 +189,8 @@ export const registerIpcHandlers = () => {
       return false;
     }
   });
-  ipcMain.handle('proxy:traffic-context-menu', async (event, entryId) => {
-    showTrafficContextMenu(event, entryId);
+  ipcMain.handle('proxy:traffic-context-menu', async (event, entryIds) => {
+    showTrafficContextMenu(event, entryIds);
   });
   ipcMain.handle('proxy:save-response-body', async (_event, payload) => {
     const body = payload?.body;

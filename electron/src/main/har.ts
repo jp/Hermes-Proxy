@@ -41,6 +41,23 @@ export const exportAllEntriesAsHar = async () => {
   return true;
 };
 
+export const exportSelectedEntriesAsHar = async (entryIds: string[]) => {
+  const uniqueIds = Array.from(new Set(entryIds));
+  if (!uniqueIds.length) return false;
+  const idSet = new Set(uniqueIds);
+  const entries = getEntries().filter((entry) => idSet.has(entry.id));
+  if (!entries.length) return false;
+  const har = buildHarLog(entries.slice().reverse().map((entry) => buildHarEntry(entry)));
+  const savePath = await dialog.showSaveDialog({
+    title: 'Export selected as HAR',
+    defaultPath: 'selected.har',
+    filters: [{ name: 'HAR', extensions: ['har'] }],
+  });
+  if (savePath.canceled || !savePath.filePath) return false;
+  fs.writeFileSync(savePath.filePath, JSON.stringify(har, null, 2), 'utf-8');
+  return true;
+};
+
 export const importHarFromFile = (filePath: string) => {
   const fileText = fs.readFileSync(filePath, 'utf8');
   const har = JSON.parse(fileText);

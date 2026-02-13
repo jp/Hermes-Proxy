@@ -46,7 +46,7 @@ interface ElectronApi {
   openRequestEditor?: (entryId: string) => Promise<boolean> | boolean;
   saveRules?: () => Promise<void>;
   loadRules?: () => Promise<void>;
-  showTrafficContextMenu?: (entryId: string) => void;
+  showTrafficContextMenu?: (entryIds: string[] | string) => void;
   exportCaCertificate?: () => void;
   saveResponseBody?: (payload: SaveBodyPayload) => void;
 }

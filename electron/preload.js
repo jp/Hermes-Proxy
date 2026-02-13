@@ -55,5 +55,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveResponseBody: (payload) => ipcRenderer.invoke('proxy:save-response-body', payload),
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),
-  showTrafficContextMenu: (entryId) => ipcRenderer.invoke('proxy:traffic-context-menu', entryId),
+  showTrafficContextMenu: (entryIds) => ipcRenderer.invoke('proxy:traffic-context-menu', entryIds),
 });

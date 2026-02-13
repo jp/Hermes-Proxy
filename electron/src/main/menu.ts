@@ -1,11 +1,28 @@
 import { BrowserWindow, Menu, clipboard } from 'electron';
 import { buildCurlCommand, buildFetchCommand, buildPowerShellCommand } from './commands';
 import { buildEntryUrl } from './entries';
-import { exportEntryAsHar } from './har';
+import { exportEntryAsHar, exportSelectedEntriesAsHar } from './har';
 import { getEntryById } from './state';
 
-export const showTrafficContextMenu = (event: Electron.IpcMainInvokeEvent, entryId: string) => {
-  const entry = getEntryById(entryId);
+export const showTrafficContextMenu = (
+  event: Electron.IpcMainInvokeEvent,
+  entryIds: string[] | string,
+) => {
+  const ids = Array.isArray(entryIds) ? entryIds : [entryIds];
+  const uniqueIds = Array.from(new Set(ids.filter((id) => Boolean(id))));
+  if (uniqueIds.length > 1) {
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'export selected as HAR',
+        click: () => exportSelectedEntriesAsHar(uniqueIds),
+      },
+    ]);
+    menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });
+    return;
+  }
+
+  const entryId = uniqueIds[0];
+  const entry = entryId ? getEntryById(entryId) : null;
   const menu = Menu.buildFromTemplate([
     {
       label: 'Add matching rule',

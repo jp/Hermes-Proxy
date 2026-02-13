@@ -30,6 +30,8 @@ const MAX_ENTRIES = 20000;
 function App() {
   const [entries, setEntries] = useState<ProxyEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const lastSelectedIdRef = useRef<string | null>(null);
   const [caPath, setCaPath] = useState('');
   const [caDetails, setCaDetails] = useState<CaCertificateDetails | null>(null);
   const [activeTab, setActiveTab] = useState('intercept');
@@ -237,6 +239,21 @@ function App() {
   }, [selectedId]);
 
   useEffect(() => {
+    setSelectedIds((prev) => {
+      const entryIds = new Set(entries.map((entry) => entry.id));
+      const next = prev.filter((id) => entryIds.has(id));
+      return next;
+    });
+  }, [entries]);
+
+  useEffect(() => {
+    setSelectedId((prev) => {
+      if (prev && selectedIds.includes(prev)) return prev;
+      return selectedIds[0] ?? null;
+    });
+  }, [selectedIds]);
+
+  useEffect(() => {
     if (!isResizing) return;
     const onMove = (event: MouseEvent) => {
       const state = resizeRef.current;
@@ -292,10 +309,60 @@ function App() {
   const handleClearTraffic = async () => {
     await window.electronAPI?.clearTraffic?.();
     setSelectedId(null);
+    setSelectedIds([]);
+    lastSelectedIdRef.current = null;
   };
 
   const handleSaveRules = async () => {
     await window.electronAPI?.saveRules?.();
+  };
+
+  const handleSelectEntry = (
+    entryId: string,
+    modifiers: { ctrl: boolean; shift: boolean; meta: boolean },
+    orderedIds: string[],
+  ) => {
+    const hasToggle = modifiers.ctrl || modifiers.meta;
+    setSelectedIds((prev) => {
+      let next = prev.slice();
+      if (modifiers.shift && orderedIds.length) {
+        const anchor = lastSelectedIdRef.current ?? entryId;
+        const startIndex = orderedIds.indexOf(anchor);
+        const endIndex = orderedIds.indexOf(entryId);
+        if (startIndex !== -1 && endIndex !== -1) {
+          const [from, to] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+          const range = orderedIds.slice(from, to + 1);
+          next = hasToggle ? Array.from(new Set([...next, ...range])) : range;
+        } else {
+          next = hasToggle
+            ? next.includes(entryId)
+              ? next.filter((id) => id !== entryId)
+              : [...next, entryId]
+            : [entryId];
+        }
+      } else if (hasToggle) {
+        next = next.includes(entryId) ? next.filter((id) => id !== entryId) : [...next, entryId];
+      } else {
+        next = [entryId];
+      }
+
+      if (next.length === 0) {
+        setSelectedId(null);
+      } else if (next.includes(entryId)) {
+        setSelectedId(entryId);
+      } else {
+        setSelectedId(next[0] ?? null);
+      }
+      lastSelectedIdRef.current = entryId;
+      return next;
+    });
+  };
+
+  const handleSelectAll = (ids: string[]) => {
+    const next = ids.slice();
+    setSelectedIds(next);
+    setSelectedId(next[0] ?? null);
+    lastSelectedIdRef.current = next[0] ?? null;
   };
 
   const handleLoadRules = async () => {
@@ -641,9 +708,10 @@ function App() {
           entries={entries}
           filteredEntries={filteredEntries}
           selected={selected}
-          selectedId={selectedId}
-          onSelectEntry={setSelectedId}
-          onShowContextMenu={(entryId) => window.electronAPI?.showTrafficContextMenu?.(entryId)}
+          selectedIds={selectedIds}
+          onSelectEntry={handleSelectEntry}
+          onSelectAll={handleSelectAll}
+          onShowContextMenu={(entryIds) => window.electronAPI?.showTrafficContextMenu?.(entryIds)}
           proxyHost={proxyHost}
           proxyPort={proxyPort}
           isResizing={isResizing}
