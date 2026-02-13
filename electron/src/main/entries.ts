@@ -22,16 +22,37 @@ export const buildEntryFromHar = (harEntry: any): ProxyEntry => {
   const url = new URL(request.url || 'http://unknown');
   const requestHeaders = headersListToObject(request.headers || []);
   const responseHeaders = headersListToObject(response.headers || []);
+  const referrer = getHeaderValue(requestHeaders, 'referer') || getHeaderValue(requestHeaders, 'referrer');
   const requestBodyBuffer = request.postData?.text ? Buffer.from(request.postData.text, 'utf8') : Buffer.alloc(0);
   const responseBodyBuffer = decodeHarBody(response.content || {});
   const requestEncoding = getHeaderValue(requestHeaders, 'content-encoding') || null;
   const responseEncoding = getHeaderValue(responseHeaders, 'content-encoding') || null;
   const decodedRequest = decodeBody(requestBodyBuffer, requestEncoding);
   const decodedResponse = decodeBody(responseBodyBuffer, responseEncoding);
+  const startedAt = harEntry?.startedDateTime ? Date.parse(harEntry.startedDateTime) : Date.now();
+  const timingSend = typeof harEntry?.timings?.send === 'number' && harEntry.timings.send >= 0 ? harEntry.timings.send : null;
+  const timingWait = typeof harEntry?.timings?.wait === 'number' && harEntry.timings.wait >= 0 ? harEntry.timings.wait : null;
+  const timingReceive =
+    typeof harEntry?.timings?.receive === 'number' && harEntry.timings.receive >= 0 ? harEntry.timings.receive : null;
+  const requestEndAt = timingSend !== null ? startedAt + timingSend : null;
+  const responseStartAt =
+    timingSend !== null && timingWait !== null ? startedAt + timingSend + timingWait : null;
+  const responseEndAt =
+    timingSend !== null && timingWait !== null && timingReceive !== null
+      ? startedAt + timingSend + timingWait + timingReceive
+      : null;
 
   return {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     timestamp: harEntry.startedDateTime || new Date().toISOString(),
+    url: request.url || buildEntryUrl({
+      protocol: url.protocol,
+      host: url.host || url.hostname,
+      path: url.pathname,
+      query: url.search,
+    } as ProxyEntry),
+    referrer,
+    parentId: null,
     method: request.method || 'GET',
     requestHttpVersion: normalizeHarHttpVersion(request.httpVersion),
     responseHttpVersion: normalizeHarHttpVersion(response.httpVersion),
@@ -54,6 +75,13 @@ export const buildEntryFromHar = (harEntry: any): ProxyEntry => {
     responseDecodedSize: decodedResponse?.length ?? null,
     durationMs: typeof harEntry.time === 'number' ? harEntry.time : null,
     error: null,
+    requestStartAt: Number.isFinite(startedAt) ? startedAt : null,
+    requestEndAt,
+    responseStartAt,
+    responseEndAt,
+    timingSendMs: timingSend,
+    timingWaitMs: timingWait,
+    timingReceiveMs: timingReceive,
   };
 };
 
@@ -74,6 +102,10 @@ type BuildEntryInput = {
   responseHttpVersion?: string | null;
   durationMs?: number | null;
   requestHeadersOverride?: Array<{ name: string; value: string }> | null;
+  requestStartAt?: number | null;
+  requestEndAt?: number | null;
+  responseStartAt?: number | null;
+  responseEndAt?: number | null;
 };
 
 export const buildEntry = ({
@@ -87,9 +119,22 @@ export const buildEntry = ({
   responseHttpVersion,
   durationMs,
   requestHeadersOverride,
+  requestStartAt,
+  requestEndAt,
+  responseStartAt,
+  responseEndAt,
 }: BuildEntryInput): ProxyEntry => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  timestamp: new Date().toISOString(),
+  timestamp: new Date(requestStartAt ?? Date.now()).toISOString(),
+  url: buildEntryUrl({
+    protocol: target.protocol || 'http:',
+    host: target.host || target.hostname,
+    path: target.pathname,
+    query: target.search,
+  } as ProxyEntry),
+  referrer:
+    getHeaderValue(request.headers || {}, 'referer') || getHeaderValue(request.headers || {}, 'referrer') || null,
+  parentId: null,
   method: request.method || 'GET',
   requestHttpVersion: normalizeHttpVersion(request.httpVersion, request.httpVersionMajor, request.httpVersionMinor),
   responseHttpVersion: normalizeHttpVersion(responseHttpVersion || undefined, undefined, undefined),
@@ -121,6 +166,22 @@ export const buildEntry = ({
   responseDecodedSize: decodeBody(responseBody, getHeaderValue(responseHeaders || {}, 'content-encoding'))?.length ?? null,
   durationMs: typeof durationMs === 'number' ? durationMs : null,
   error: error ? String((error as { message?: string }).message || error) : null,
+  requestStartAt: typeof requestStartAt === 'number' ? requestStartAt : null,
+  requestEndAt: typeof requestEndAt === 'number' ? requestEndAt : null,
+  responseStartAt: typeof responseStartAt === 'number' ? responseStartAt : null,
+  responseEndAt: typeof responseEndAt === 'number' ? responseEndAt : null,
+  timingSendMs:
+    typeof requestStartAt === 'number' && typeof requestEndAt === 'number'
+      ? Math.max(0, requestEndAt - requestStartAt)
+      : null,
+  timingWaitMs:
+    typeof requestEndAt === 'number' && typeof responseStartAt === 'number'
+      ? Math.max(0, responseStartAt - requestEndAt)
+      : null,
+  timingReceiveMs:
+    typeof responseStartAt === 'number' && typeof responseEndAt === 'number'
+      ? Math.max(0, responseEndAt - responseStartAt)
+      : null,
 });
 
 export const buildHarEntry = (entry: ProxyEntry) => ({
@@ -161,5 +222,9 @@ export const buildHarEntry = (entry: ProxyEntry) => ({
     bodySize: entry.responseBody ? Buffer.byteLength(entry.responseBody) : 0,
   },
   cache: {},
-  timings: { send: 0, wait: 0, receive: 0 },
+  timings: {
+    send: entry.timingSendMs ?? 0,
+    wait: entry.timingWaitMs ?? 0,
+    receive: entry.timingReceiveMs ?? 0,
+  },
 });

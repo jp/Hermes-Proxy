@@ -34,6 +34,9 @@ export interface Rule {
 export interface ProxyEntry {
   id: string;
   timestamp?: string;
+  url?: string;
+  referrer?: string | null;
+  parentId?: string | null;
   method: string;
   status?: number | null;
   protocol?: string;
@@ -56,6 +59,13 @@ export interface ProxyEntry {
   error?: string | null;
   requestEncoding?: string | null;
   responseEncoding?: string | null;
+  requestStartAt?: number | null;
+  requestEndAt?: number | null;
+  responseStartAt?: number | null;
+  responseEndAt?: number | null;
+  timingSendMs?: number | null;
+  timingWaitMs?: number | null;
+  timingReceiveMs?: number | null;
 }
 
 export interface RuleRequestInfo {

@@ -26,9 +26,9 @@ type InterceptViewProps = {
   responseCollapsed: boolean;
   onToggleRequest: () => void;
   onToggleResponse: () => void;
-  requestView: 'headers' | 'query' | 'body' | 'raw' | 'summary';
+  requestView: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart';
   responseView: 'headers' | 'query' | 'body' | 'raw' | 'summary';
-  onRequestViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary') => void;
+  onRequestViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart') => void;
   onResponseViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary') => void;
   requestLine: string;
   responseLine: string;
@@ -203,6 +203,7 @@ function InterceptView({
     { id: 'body', label: 'Body' },
     { id: 'raw', label: 'Raw' },
     { id: 'summary', label: 'Summary' },
+    { id: 'chart', label: 'Chart' },
   ] as const;
   const responseTabs = [
     { id: 'headers', label: 'Header' },
@@ -211,6 +212,66 @@ function InterceptView({
     { id: 'raw', label: 'Raw' },
     { id: 'summary', label: 'Summary' },
   ] as const;
+
+  const chartData = React.useMemo(() => {
+    if (!selected) {
+      return { rows: [], minStart: 0, rangeMs: 0 };
+    }
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const selectedId = selected.id;
+    const isRelated = (entry: ProxyEntry) => {
+      if (entry.id === selectedId) return true;
+      let current = entry;
+      while (current?.parentId) {
+        if (current.parentId === selectedId) return true;
+        const parent = byId.get(current.parentId);
+        if (!parent) break;
+        current = parent;
+      }
+      return false;
+    };
+    const toTimestampMs = (entry: ProxyEntry) => {
+      if (typeof entry.requestStartAt === 'number') return entry.requestStartAt;
+      if (typeof entry.timestamp === 'number') return entry.timestamp;
+      if (typeof entry.timestamp === 'string') {
+        const parsed = Date.parse(entry.timestamp);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+    const rows = entries
+      .filter(isRelated)
+      .map((entry) => {
+        const startMs = toTimestampMs(entry);
+        if (startMs === null) return null;
+        const sendMs = entry.timingSendMs ?? 0;
+        const waitMs = entry.timingWaitMs ?? 0;
+        let receiveMs = entry.timingReceiveMs ?? 0;
+        if (sendMs + waitMs + receiveMs <= 0 && typeof entry.durationMs === 'number') {
+          receiveMs = entry.durationMs;
+        }
+        const totalMs = sendMs + waitMs + receiveMs;
+        if (totalMs <= 0) return null;
+        return {
+          entry,
+          startMs,
+          sendMs,
+          waitMs,
+          receiveMs,
+          endMs: startMs + totalMs,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((a, b) => a.startMs - b.startMs);
+
+    if (rows.length === 0) {
+      return { rows: [], minStart: 0, rangeMs: 0 };
+    }
+    const minStart = Math.min(...rows.map((row) => row.startMs));
+    const maxEnd = Math.max(...rows.map((row) => row.endMs));
+    const rangeMs = Math.max(1, maxEnd - minStart);
+    return { rows, minStart, rangeMs };
+  }, [entries, selected]);
   return (
     <div className="app intercept">
       <div
@@ -458,6 +519,68 @@ function InterceptView({
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {requestView === 'chart' && (
+                      <div className="plain-field chart-view" aria-label="Request chart">
+                        {chartData.rows.length === 0 ? (
+                          <div className="empty">No timing data for this request yet.</div>
+                        ) : (
+                          <>
+                            <div className="chart-legend">
+                              <span className="legend-item">
+                                <span className="legend-swatch request"></span>
+                                Request
+                              </span>
+                              <span className="legend-item">
+                                <span className="legend-swatch latency"></span>
+                                Latency
+                              </span>
+                              <span className="legend-item">
+                                <span className="legend-swatch response"></span>
+                                Response
+                              </span>
+                              <span className="legend-meta">{Math.round(chartData.rangeMs)} ms window</span>
+                            </div>
+                            <div className="chart-list">
+                              {chartData.rows.map((row) => {
+                                const startOffset = ((row.startMs - chartData.minStart) / chartData.rangeMs) * 100;
+                                const sendWidth = (row.sendMs / chartData.rangeMs) * 100;
+                                const waitWidth = (row.waitMs / chartData.rangeMs) * 100;
+                                const receiveWidth = (row.receiveMs / chartData.rangeMs) * 100;
+                                const waitOffset = startOffset + sendWidth;
+                                const receiveOffset = waitOffset + waitWidth;
+                                return (
+                                  <div className="chart-row" key={row.entry.id}>
+                                    <div className="chart-label">
+                                      <span className="chart-method">{row.entry.method}</span>
+                                      <span className="chart-path">
+                                        {row.entry.path}
+                                        {row.entry.query || ''}
+                                      </span>
+                                    </div>
+                                    <div className="chart-track">
+                                      <div className="chart-bar">
+                                        <span
+                                          className="chart-seg request"
+                                          style={{ left: `${startOffset}%`, width: `${sendWidth}%` }}
+                                        />
+                                        <span
+                                          className="chart-seg latency"
+                                          style={{ left: `${waitOffset}%`, width: `${waitWidth}%` }}
+                                        />
+                                        <span
+                                          className="chart-seg response"
+                                          style={{ left: `${receiveOffset}%`, width: `${receiveWidth}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

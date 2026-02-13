@@ -38,7 +38,9 @@ function App() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [responseCollapsed, setResponseCollapsed] = useState(false);
-  const [requestView, setRequestView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary'>('headers');
+  const [requestView, setRequestView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart'>(
+    'headers'
+  );
   const [responseView, setResponseView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary'>('headers');
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
@@ -68,7 +70,10 @@ function App() {
         const normalized = (history || []).slice().reverse();
         setEntries(normalized);
         if (normalized.length) {
-          setSelectedId(normalized[normalized.length - 1].id);
+          const firstId = normalized[normalized.length - 1].id;
+          setSelectedId(firstId);
+          setSelectedIds([firstId]);
+          lastSelectedIdRef.current = firstId;
         }
       });
     }
@@ -78,6 +83,10 @@ function App() {
         setEntries((prev) => {
           const next = [...prev, entry];
           setSelectedId((current) => current ?? entry.id);
+          setSelectedIds((current) => (current.length ? current : [entry.id]));
+          if (!lastSelectedIdRef.current) {
+            lastSelectedIdRef.current = entry.id;
+          }
           return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
         });
       });
@@ -87,6 +96,8 @@ function App() {
       offClearTraffic = api.onClearTraffic(() => {
         setEntries([]);
         setSelectedId(null);
+        setSelectedIds([]);
+        lastSelectedIdRef.current = null;
       });
     }
 

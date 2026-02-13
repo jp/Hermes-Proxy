@@ -2,6 +2,7 @@ import type { ProxyEntry, ProxySettings, Rule } from './types';
 import { HISTORY_LIMIT, PROXY_PORT_START } from './constants';
 
 const entries: ProxyEntry[] = [];
+const entryIdByUrl = new Map<string, string>();
 let rules: Rule[] = [];
 let caCertPath: string | null = null;
 let proxyInstance: { close?: (...args: any[]) => void } | null = null;
@@ -15,12 +16,30 @@ let proxySettings: ProxySettings = {
 export const getEntries = () => entries;
 
 export const addEntry = (entry: ProxyEntry) => {
+  const normalizeUrl = (value?: string | null) => {
+    if (!value) return null;
+    try {
+      const parsed = new URL(value);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch (err) {
+      return value.split('#')[0];
+    }
+  };
+  const referrer = normalizeUrl(entry.referrer);
+  const parentId = referrer ? entryIdByUrl.get(referrer) || null : null;
+  entry.parentId = parentId;
+  const url = normalizeUrl(entry.url);
+  if (url) {
+    entryIdByUrl.set(url, entry.id);
+  }
   entries.unshift(entry);
   if (entries.length > HISTORY_LIMIT) entries.pop();
 };
 
 export const clearEntries = () => {
   entries.splice(0, entries.length);
+  entryIdByUrl.clear();
 };
 
 export const getEntryById = (entryId: string) => entries.find((entry) => entry.id === entryId);

@@ -51,10 +51,16 @@ export const repeatEntryRequest = (entry: ProxyEntry, overrides: RepeatRequestOv
       headers,
     };
     const startedAt = Date.now();
+    let requestEndAt: number | null = null;
+    let responseStartAt: number | null = null;
     const req = transport.request(options, (res) => {
       const responseChunks: Buffer[] = [];
-      res.on('data', (chunk) => responseChunks.push(chunk));
+      res.on('data', (chunk) => {
+        if (!responseStartAt) responseStartAt = Date.now();
+        responseChunks.push(chunk);
+      });
       res.on('end', () => {
+        const responseEndAt = Date.now();
         const responseBody = Buffer.concat(responseChunks);
         broadcastEntry(
           buildEntry({
@@ -70,12 +76,20 @@ export const repeatEntryRequest = (entry: ProxyEntry, overrides: RepeatRequestOv
             responseBody,
             responseHttpVersion: res.httpVersion,
             durationMs: Date.now() - startedAt,
+            requestStartAt: startedAt,
+            requestEndAt: requestEndAt ?? startedAt,
+            responseStartAt: responseStartAt ?? responseEndAt,
+            responseEndAt,
           })
         );
         resolve(true);
       });
     });
+    req.on('finish', () => {
+      requestEndAt = Date.now();
+    });
     req.on('error', (err) => {
+      const responseEndAt = Date.now();
       broadcastEntry(
         buildEntry({
           target: url,
@@ -91,6 +105,10 @@ export const repeatEntryRequest = (entry: ProxyEntry, overrides: RepeatRequestOv
           responseHttpVersion: null,
           durationMs: Date.now() - startedAt,
           error: err,
+          requestStartAt: startedAt,
+          requestEndAt: requestEndAt ?? startedAt,
+          responseStartAt: responseStartAt ?? responseEndAt,
+          responseEndAt,
         })
       );
       reject(err);

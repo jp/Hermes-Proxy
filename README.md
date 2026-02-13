@@ -4,6 +4,7 @@ Hermes Proxy is a desktop HTTP/HTTPS interception app built with Electron and Vi
 It captures requests/responses, lets you replay requests, and export/import HAR files.
 
 ![Traffic view](docs/images/screenshot-traffic.png)
+![Network Chart View](docs/images/screenshot-chart.png)
 ![Rules editor](docs/images/screenshot-rules.png)
 
 ## Features
@@ -13,6 +14,10 @@ It captures requests/responses, lets you replay requests, and export/import HAR 
 - Import HAR files into the traffic table
 - Save response bodies
 - Rules engine to match method/host/url/headers and either delay requests, override headers, or close connections
+
+## Releases and Binaries
+
+At the moment, the releases are built but not signed. It can fully prevent the installation the releases. It is recommended to use the development setup below.
 
 ## Development
 Install dependencies:

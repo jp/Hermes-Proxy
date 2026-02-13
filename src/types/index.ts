@@ -10,6 +10,9 @@ export interface ProxyEntry {
   host: string;
   path: string;
   query?: string;
+  url?: string;
+  referrer?: string | null;
+  parentId?: string | null;
   requestHeaders: HeaderMap;
   responseHeaders: HeaderMap;
   requestBody?: string;
@@ -27,6 +30,13 @@ export interface ProxyEntry {
   error?: string;
   requestEncoding?: string;
   responseEncoding?: string;
+  requestStartAt?: number | null;
+  requestEndAt?: number | null;
+  responseStartAt?: number | null;
+  responseEndAt?: number | null;
+  timingSendMs?: number | null;
+  timingWaitMs?: number | null;
+  timingReceiveMs?: number | null;
 }
 
 export interface RequestHeaderDraft {

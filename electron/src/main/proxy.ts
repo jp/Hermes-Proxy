@@ -49,6 +49,10 @@ export const startMitmProxy = async () => {
           error: err,
           responseHttpVersion: ctx.serverToProxyResponse?.httpVersion,
           durationMs: ctx._startAt ? Date.now() - ctx._startAt : null,
+          requestStartAt: ctx._requestStartAt ?? ctx._startAt ?? null,
+          requestEndAt: ctx._requestEndAt ?? null,
+          responseStartAt: ctx._responseStartAt ?? null,
+          responseEndAt: ctx._responseEndAt ?? null,
         })
       );
     }
@@ -56,6 +60,7 @@ export const startMitmProxy = async () => {
 
   proxy.onRequest((ctx: any, callback: () => void) => {
     ctx._startAt = Date.now();
+    ctx._requestStartAt = ctx._startAt;
     const target = toTargetUrl(ctx);
     const requestInfo = buildRuleRequestInfo(ctx, target);
     const activeRule = getRules().find((rule) => matchRule(rule, requestInfo));
@@ -112,15 +117,23 @@ export const startMitmProxy = async () => {
     });
     ctx.onRequestEnd((ctxReq: any, cb: () => void) => {
       ctxReq._requestBody = Buffer.concat(requestChunks);
+      ctxReq._requestEndAt = Date.now();
       cb();
     });
 
     const responseChunks: Buffer[] = [];
     ctx.onResponseData((_ctxRes: any, chunk: Buffer, cb: (_err: null, next: Buffer) => void) => {
       responseChunks.push(chunk);
+      if (!_ctxRes._responseStartAt) {
+        _ctxRes._responseStartAt = Date.now();
+      }
       cb(null, chunk);
     });
     ctx.onResponseEnd((ctxRes: any, cb: () => void) => {
+      ctxRes._responseEndAt = Date.now();
+      if (!ctxRes._responseStartAt) {
+        ctxRes._responseStartAt = ctxRes._responseEndAt;
+      }
       broadcastEntry(
         buildEntry({
           target: toTargetUrl(ctxRes),
@@ -132,6 +145,10 @@ export const startMitmProxy = async () => {
           responseBody: Buffer.concat(responseChunks),
           responseHttpVersion: ctxRes.serverToProxyResponse?.httpVersion,
           durationMs: ctxRes._startAt ? Date.now() - ctxRes._startAt : null,
+          requestStartAt: ctxRes._requestStartAt ?? ctxRes._startAt ?? null,
+          requestEndAt: ctxRes._requestEndAt ?? null,
+          responseStartAt: ctxRes._responseStartAt ?? null,
+          responseEndAt: ctxRes._responseEndAt ?? null,
         })
       );
       cb();
