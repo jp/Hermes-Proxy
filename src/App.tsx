@@ -254,6 +254,15 @@ function App() {
   }, [selectedIds]);
 
   useEffect(() => {
+    if (selectedIds.length > 0 || entries.length === 0) return;
+    const firstId = entries[0]?.id;
+    if (!firstId) return;
+    setSelectedIds([firstId]);
+    setSelectedId(firstId);
+    lastSelectedIdRef.current = firstId;
+  }, [entries, selectedIds]);
+
+  useEffect(() => {
     if (!isResizing) return;
     const onMove = (event: MouseEvent) => {
       const state = resizeRef.current;
