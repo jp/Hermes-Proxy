@@ -4,15 +4,21 @@ import { normalizeHeaderValue } from './http';
 
 const escapeSingleQuotes = (value: string) => String(value).replace(/'/g, `'"'"'`);
 const escapePowerShell = (value: string) => String(value).replace(/'/g, "''");
+const HTTP_HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+const getExportableHeaderEntries = (headers: ProxyEntry['requestHeaders'] = {}) =>
+  Object.entries(headers).filter(([name, value]) => {
+    if (typeof value === 'undefined') return false;
+    if (!name || name.startsWith(':')) return false;
+    return HTTP_HEADER_NAME_RE.test(name);
+  });
 
 export const buildCurlCommand = (entry: ProxyEntry) => {
   const url = buildEntryUrl(entry);
   const parts = [`curl -X ${entry.method || 'GET'}`];
   parts.push(`'${escapeSingleQuotes(url)}'`);
 
-  const headers = entry.requestHeaders || {};
-  Object.entries(headers).forEach(([name, value]) => {
-    if (typeof value === 'undefined') return;
+  getExportableHeaderEntries(entry.requestHeaders || {}).forEach(([name, value]) => {
     const headerValue = Array.isArray(value) ? value.join(', ') : normalizeHeaderValue(value);
     parts.push(`-H '${escapeSingleQuotes(`${name}: ${headerValue}`)}'`);
   });
@@ -27,10 +33,7 @@ export const buildCurlCommand = (entry: ProxyEntry) => {
 export const buildPowerShellCommand = (entry: ProxyEntry) => {
   const url = buildEntryUrl(entry);
   const method = entry.method || 'GET';
-  const headers = entry.requestHeaders || {};
-  const headerEntries = Object.entries(headers)
-    .filter(([, value]) => typeof value !== 'undefined')
-    .map(([name, value]) => {
+  const headerEntries = getExportableHeaderEntries(entry.requestHeaders || {}).map(([name, value]) => {
       const headerValue = Array.isArray(value) ? value.join(', ') : normalizeHeaderValue(value);
       return `'${escapePowerShell(name)}'='${escapePowerShell(headerValue)}'`;
     });
@@ -49,10 +52,7 @@ export const buildPowerShellCommand = (entry: ProxyEntry) => {
 export const buildFetchCommand = (entry: ProxyEntry) => {
   const url = buildEntryUrl(entry);
   const method = entry.method || 'GET';
-  const headers = entry.requestHeaders || {};
-  const headerEntries = Object.entries(headers)
-    .filter(([, value]) => typeof value !== 'undefined')
-    .map(([name, value]) => {
+  const headerEntries = getExportableHeaderEntries(entry.requestHeaders || {}).map(([name, value]) => {
       const headerValue = Array.isArray(value) ? value.join(', ') : normalizeHeaderValue(value);
       return `    '${String(name)}': '${escapeSingleQuotes(headerValue)}'`;
     });

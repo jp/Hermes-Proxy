@@ -23,6 +23,7 @@ export const sanitizeHeaders = (headers: HeaderMap = {}, options: { stripContent
   const sanitized: HeaderMap = {};
   Object.entries(headers).forEach(([name, value]) => {
     if (typeof value === 'undefined') return;
+    if (!name || name.startsWith(':')) return;
     const lower = name.toLowerCase();
     if (lower === 'host' || lower === 'content-length' || lower === 'proxy-connection') return;
     if (stripContentEncoding && lower === 'content-encoding') return;
