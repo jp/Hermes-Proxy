@@ -160,6 +160,48 @@ const parseIdentifierExtension = (cert: any, extensionName: string, fieldName: s
 const toPkcs8Pem = (pemText: string) =>
   crypto.createPrivateKey(pemText).export({ type: 'pkcs8', format: 'pem' }).toString();
 
+const getCertPublicKeyDigest = (certPem: string) => {
+  const publicKeyDer = crypto.createPublicKey(certPem).export({ type: 'spki', format: 'der' });
+  return crypto.createHash('sha256').update(publicKeyDer).digest('hex');
+};
+
+const getPrivateKeyPublicDigest = (privateKeyPem: string) => {
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  const publicKeyDer = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+  return crypto.createHash('sha256').update(publicKeyDer).digest('hex');
+};
+
+const isCaKeyPairValid = (certPem: string, privateKeyPem: string) => {
+  try {
+    return getCertPublicKeyDigest(certPem) === getPrivateKeyPublicDigest(privateKeyPem);
+  } catch (err) {
+    return false;
+  }
+};
+
+const purgeLeafCertificates = (certsDir: string, keysDir: string) => {
+  const certs = fs.readdirSync(certsDir);
+  certs.forEach((fileName) => {
+    if (!fileName.endsWith('.pem')) return;
+    if (fileName === 'ca.pem') return;
+    try {
+      fs.unlinkSync(path.join(certsDir, fileName));
+    } catch (err) {
+      // Keep startup resilient even if a stale file can't be removed.
+    }
+  });
+
+  const keys = fs.readdirSync(keysDir);
+  keys.forEach((fileName) => {
+    if (fileName === 'ca.private.key' || fileName === 'ca.public.key') return;
+    try {
+      fs.unlinkSync(path.join(keysDir, fileName));
+    } catch (err) {
+      // Keep startup resilient even if a stale file can't be removed.
+    }
+  });
+};
+
 export const ensureHermesCa = async (caDir: string) => {
   const certsDir = path.join(caDir, 'certs');
   const keysDir = path.join(caDir, 'keys');
@@ -176,13 +218,24 @@ export const ensureHermesCa = async (caDir: string) => {
       const keyPem = fs.readFileSync(privateKeyPath, 'utf8');
       try {
         const pkcs8Pem = toPkcs8Pem(keyPem);
-        fs.writeFileSync(privateKeyPath, pkcs8Pem);
-        return;
+        if (isCaKeyPairValid(pemText, pkcs8Pem)) {
+          if (pkcs8Pem !== keyPem) {
+            fs.writeFileSync(privateKeyPath, pkcs8Pem);
+          }
+          const publicKeyPem = crypto.createPublicKey(crypto.createPrivateKey(pkcs8Pem)).export({
+            type: 'spki',
+            format: 'pem',
+          });
+          fs.writeFileSync(publicKeyPath, publicKeyPem);
+          return;
+        }
       } catch (err) {
-        // Re-generate if the key format is incompatible.
+        // Re-generate if key format or key pair is invalid.
       }
     }
   }
+
+  purgeLeafCertificates(certsDir, keysDir);
 
   const keys = await new Promise<{ publicKey: unknown; privateKey: unknown }>((resolve, reject) => {
     forge.pki.rsa.generateKeyPair({ bits: 2048 }, (err: Error | null, keyPair: any) => {
