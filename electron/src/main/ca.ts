@@ -157,6 +157,9 @@ const parseIdentifierExtension = (cert: any, extensionName: string, fieldName: s
   return stringifyValue(rawValue);
 };
 
+const toPkcs8Pem = (pemText: string) =>
+  crypto.createPrivateKey(pemText).export({ type: 'pkcs8', format: 'pem' }).toString();
+
 export const ensureHermesCa = async (caDir: string) => {
   const certsDir = path.join(caDir, 'certs');
   const keysDir = path.join(caDir, 'keys');
@@ -166,11 +169,18 @@ export const ensureHermesCa = async (caDir: string) => {
   fs.mkdirSync(certsDir, { recursive: true });
   fs.mkdirSync(keysDir, { recursive: true });
 
-  if (fs.existsSync(certPath)) {
+  if (fs.existsSync(certPath) && fs.existsSync(privateKeyPath)) {
     const pemText = fs.readFileSync(certPath, 'utf8');
     const commonName = getCertCommonName(pemText);
     if (commonName === 'HermesProxyCA') {
-      return;
+      const keyPem = fs.readFileSync(privateKeyPath, 'utf8');
+      try {
+        const pkcs8Pem = toPkcs8Pem(keyPem);
+        fs.writeFileSync(privateKeyPath, pkcs8Pem);
+        return;
+      } catch (err) {
+        // Re-generate if the key format is incompatible.
+      }
     }
   }
 
@@ -196,7 +206,8 @@ export const ensureHermesCa = async (caDir: string) => {
   cert.sign(keys.privateKey, forge.md.sha256.create());
 
   fs.writeFileSync(certPath, forge.pki.certificateToPem(cert));
-  fs.writeFileSync(privateKeyPath, forge.pki.privateKeyToPem(keys.privateKey));
+  const pkcs8Pem = toPkcs8Pem(forge.pki.privateKeyToPem(keys.privateKey));
+  fs.writeFileSync(privateKeyPath, pkcs8Pem);
   fs.writeFileSync(publicKeyPath, forge.pki.publicKeyToPem(keys.publicKey));
 };
 

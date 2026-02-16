@@ -5,7 +5,7 @@ const entries: ProxyEntry[] = [];
 const entryIdByUrl = new Map<string, string>();
 let rules: Rule[] = [];
 let caCertPath: string | null = null;
-let proxyInstance: { close?: (...args: any[]) => void } | null = null;
+let proxyInstance: { stop?: (...args: any[]) => void } | null = null;
 let proxyPort = PROXY_PORT_START;
 let proxyHost = 'localhost';
 let rulesFilePath: string | null = null;
@@ -58,7 +58,7 @@ export const setCaCertPath = (nextPath: string | null) => {
 
 export const getProxyInstance = () => proxyInstance;
 
-export const setProxyInstance = (nextInstance: { close?: (...args: any[]) => void } | null) => {
+export const setProxyInstance = (nextInstance: { stop?: (...args: any[]) => void } | null) => {
   proxyInstance = nextInstance;
 };
 

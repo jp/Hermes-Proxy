@@ -1,13 +1,13 @@
 import path from 'path';
 import { app } from 'electron';
-import { Proxy as MitmProxy } from 'http-mitm-proxy';
+import { getLocal } from 'mockttp';
 import { buildEntry } from './entries';
 import { ensureHermesCa } from './ca';
 import { broadcastCaReady, broadcastEndpointReady, broadcastEntry, broadcastPortReady } from './broadcast';
 import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
 import { getLocalNetworkIp } from './network';
-import { buildRuleRequestInfo, matchRule } from './rules';
+import { matchRule } from './rules';
 import {
   getProxyInstance,
   getProxySettings,
@@ -17,164 +17,231 @@ import {
   setProxyInstance,
   setProxyPort,
 } from './state';
-import { isTimeoutError } from './utils';
 
-const toTargetUrl = (ctx: any) => {
-  const host = ctx.clientToProxyRequest.headers.host || 'unknown';
-  const protocol = ctx.isSSL ? 'https:' : 'http:';
-  const rawUrl = ctx.clientToProxyRequest.url.startsWith('http')
-    ? ctx.clientToProxyRequest.url
-    : `${protocol}//${host}${ctx.clientToProxyRequest.url}`;
-  return new URL(rawUrl);
+const normalizeHeaders = (headers: any) => {
+  if (!headers) return {};
+  if (Array.isArray(headers)) {
+    return headers.reduce<Record<string, string | string[]>>((acc, header) => {
+      const name = String(header?.name || '').trim();
+      if (!name) return acc;
+      const value = String(header?.value ?? '');
+      const existing = acc[name];
+      if (existing) {
+        acc[name] = Array.isArray(existing) ? [...existing, value] : [String(existing), value];
+      } else {
+        acc[name] = value;
+      }
+      return acc;
+    }, {});
+  }
+  if (headers instanceof Map) {
+    const result: Record<string, string | string[]> = {};
+    headers.forEach((value, key) => {
+      result[String(key)] = Array.isArray(value) ? value.map(String) : String(value ?? '');
+    });
+    return result;
+  }
+  if (typeof headers === 'object') return headers as Record<string, string | string[]>;
+  return {};
+};
+
+const toEpochMs = (value: unknown) => {
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  return null;
+};
+
+const toEventEpochMs = (timingEvents: any, key: string) => {
+  const eventValue = timingEvents?.[key];
+  if (typeof eventValue !== 'number') return null;
+
+  const startTime = toEpochMs(timingEvents?.startTime);
+  const startTimestamp = typeof timingEvents?.startTimestamp === 'number' ? timingEvents.startTimestamp : null;
+
+  if (typeof startTime === 'number' && typeof startTimestamp === 'number') {
+    return Math.round(startTime + (eventValue - startTimestamp));
+  }
+
+  return Math.round(eventValue);
+};
+
+const firstHeaderValue = (value: unknown) => {
+  if (Array.isArray(value)) return value[0] ? String(value[0]) : '';
+  if (typeof value === 'undefined' || value === null) return '';
+  return String(value);
+};
+
+const toAbsoluteRequestUrl = (request: any, headers: Record<string, unknown>) => {
+  const rawUrl = String(request?.url || '').trim();
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return rawUrl;
+  }
+
+  const protocolRaw = String(request?.protocol || '').replace(':', '').toLowerCase();
+  const protocol = protocolRaw === 'https' ? 'https' : 'http';
+  const hostHeader = firstHeaderValue(headers[':authority']) || firstHeaderValue(headers.host);
+
+  if (hostHeader && rawUrl.startsWith('/')) {
+    return `${protocol}://${hostHeader}${rawUrl}`;
+  }
+
+  return rawUrl;
 };
 
 export const startMitmProxy = async () => {
   const caDir = path.join(app.getPath('userData'), 'mitm-ca');
   await ensureHermesCa(caDir);
-  const proxy = new MitmProxy();
+  const certPath = path.join(caDir, 'certs', 'ca.pem');
+  const keyPath = path.join(caDir, 'keys', 'ca.private.key');
+  const proxy: any = getLocal({
+    http2: true,
+    https: {
+      certPath,
+      keyPath,
+    },
+  });
   const listenHost = getProxySettings().listenOnAllInterfaces ? '0.0.0.0' : '127.0.0.1';
 
-  proxy.onError((ctx: any, err: unknown, kind: string) => {
-    console.error('Proxy error', kind, err);
-    if (ctx) {
-      const target = toTargetUrl(ctx);
+  const pendingRequests = new Map<
+    string,
+    {
+      request: any;
+      requestBody: Buffer;
+      requestHeadersOverride?: Array<{ name: string; value: string }> | null;
+      requestStartAt: number | null;
+      requestEndAt: number | null;
+    }
+  >();
+
+  proxy.forAnyRequest().thenPassThrough({
+    beforeRequest: async (req: any) => {
+      const requestHeaders = normalizeHeaders(req.headers);
+      const requestInfo = {
+        method: req.method || '',
+        host: (() => {
+          try {
+            return new URL(req.url || '').host || '';
+          } catch (err) {
+            return '';
+          }
+        })(),
+        url: req.url || '',
+        headers: requestHeaders,
+      };
+      const activeRule = getRules().find((rule) => matchRule(rule, requestInfo));
+      if (!activeRule) return undefined;
+      if (activeRule.actions.type === 'delay' && activeRule.actions.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, activeRule.actions.delayMs));
+      }
+      if (activeRule.actions.type === 'overrideHeaders' && activeRule.actions.overrideHeaders.length) {
+        req._overrideHeaders = activeRule.actions.overrideHeaders;
+        const nextHeaders = applyHeaderOverrides(requestHeaders, activeRule.actions.overrideHeaders);
+        return { headers: nextHeaders };
+      }
+      if (activeRule.actions.type === 'close') {
+        return {
+          statusCode: 499,
+          body: 'Connection closed by rule',
+        };
+      }
+      return undefined;
+    },
+  });
+
+  proxy.on('request', async (req: any) => {
+    const requestBody = req.body?.buffer ?? Buffer.alloc(0);
+    const timingEvents = req.timingEvents || {};
+    const requestStartAt =
+      toEventEpochMs(timingEvents, 'startTimestamp') ??
+      toEpochMs(timingEvents.startTime) ??
+      Date.now();
+    const requestEndAt =
+      toEventEpochMs(timingEvents, 'bodyReceivedTimestamp') ??
+      requestStartAt;
+    pendingRequests.set(String(req.id ?? req.requestId ?? `${Date.now()}-${Math.random()}`), {
+      request: req,
+      requestBody,
+      requestHeadersOverride: req._overrideHeaders ?? null,
+      requestStartAt,
+      requestEndAt,
+    });
+  });
+
+  proxy.on('response', async (res: any) => {
+    const requestId = String(res.id ?? res.requestId ?? '');
+    const pending = pendingRequests.get(requestId);
+    if (requestId) {
+      pendingRequests.delete(requestId);
+    }
+    const request = pending?.request;
+    const requestBody = pending?.requestBody ?? request?.body?.buffer ?? Buffer.alloc(0);
+    const requestHeaders = normalizeHeaders(request?.headers);
+    const responseHeaders = normalizeHeaders(res.headers);
+    const responseBody = res.body?.buffer ?? Buffer.alloc(0);
+    const timingEvents = res.timingEvents || {};
+    const requestStartAt =
+      pending?.requestStartAt ??
+      toEventEpochMs(timingEvents, 'startTimestamp') ??
+      toEpochMs(timingEvents.startTime) ??
+      (request ? Date.now() : null);
+    const requestEndAt =
+      pending?.requestEndAt ??
+      toEventEpochMs(timingEvents, 'bodyReceivedTimestamp') ??
+      requestStartAt;
+    const responseStartAt =
+      toEventEpochMs(timingEvents, 'headersSentTimestamp') ??
+      toEventEpochMs(timingEvents, 'bodyReceivedTimestamp') ??
+      requestEndAt;
+    const responseEndAt =
+      toEventEpochMs(timingEvents, 'responseSentTimestamp') ??
+      toEventEpochMs(timingEvents, 'bodyReceivedTimestamp') ??
+      responseStartAt;
+
+    try {
+      const urlValue = toAbsoluteRequestUrl(request, requestHeaders);
+      if (!urlValue) return;
+      const target = new URL(urlValue);
+      const durationMs =
+        typeof responseEndAt === 'number' && typeof requestStartAt === 'number'
+          ? Math.max(0, responseEndAt - requestStartAt)
+          : null;
       broadcastEntry(
         buildEntry({
           target,
-          request: ctx.clientToProxyRequest,
-          status: isTimeoutError(err) ? 499 : 500,
-          responseHeaders: ctx.serverToProxyResponse?.headers,
-          requestBody: ctx._requestBody || Buffer.alloc(0),
-          responseBody: Buffer.alloc(0),
-          error: err,
-          responseHttpVersion: ctx.serverToProxyResponse?.httpVersion,
-          durationMs: ctx._startAt ? Date.now() - ctx._startAt : null,
-          requestStartAt: ctx._requestStartAt ?? ctx._startAt ?? null,
-          requestEndAt: ctx._requestEndAt ?? null,
-          responseStartAt: ctx._responseStartAt ?? null,
-          responseEndAt: ctx._responseEndAt ?? null,
+          request: {
+            method: request?.method || '',
+            headers: requestHeaders,
+            httpVersion: request?.httpVersion,
+          },
+          requestHeadersOverride: pending?.requestHeadersOverride ?? null,
+          status: res.statusCode,
+          responseHeaders,
+          requestBody,
+          responseBody,
+          responseHttpVersion: res.httpVersion,
+          durationMs,
+          requestStartAt,
+          requestEndAt,
+          responseStartAt,
+          responseEndAt,
         })
       );
+    } catch (err) {
+      console.error('Failed to record proxy response', err);
     }
-  });
-
-  proxy.onRequest((ctx: any, callback: () => void) => {
-    ctx._startAt = Date.now();
-    ctx._requestStartAt = ctx._startAt;
-    const target = toTargetUrl(ctx);
-    const requestInfo = buildRuleRequestInfo(ctx, target);
-    const activeRule = getRules().find((rule) => matchRule(rule, requestInfo));
-    let delayMs = 0;
-    if (activeRule) {
-      if (activeRule.actions.type === 'overrideHeaders' && activeRule.actions.overrideHeaders.length) {
-        const overrideHeaders = activeRule.actions.overrideHeaders;
-        ctx.clientToProxyRequest.headers = applyHeaderOverrides(ctx.clientToProxyRequest.headers, overrideHeaders);
-        if (ctx.proxyToServerRequestOptions?.headers) {
-          ctx.proxyToServerRequestOptions.headers = applyHeaderOverrides(
-            ctx.proxyToServerRequestOptions.headers,
-            overrideHeaders
-          );
-        }
-        ctx._overrideHeaders = activeRule.actions.overrideHeaders;
-        ctx.onRequestHeaders((ctxReq: any, cb: () => void) => {
-          if (ctxReq.proxyToServerRequestOptions?.headers) {
-            ctxReq.proxyToServerRequestOptions.headers = applyHeaderOverrides(
-              ctxReq.proxyToServerRequestOptions.headers,
-              overrideHeaders
-            );
-          }
-          cb();
-        });
-      }
-
-      if (activeRule.actions.type === 'delay') {
-        delayMs = activeRule.actions.delayMs;
-      }
-
-      if (activeRule.actions.type === 'close') {
-        ctx.clientToProxyRequest.socket.destroy();
-        broadcastEntry(
-          buildEntry({
-            target,
-            request: ctx.clientToProxyRequest,
-            status: null,
-            responseHeaders: {},
-            requestBody: Buffer.alloc(0),
-            responseBody: Buffer.alloc(0),
-            error: 'Connection closed by rule',
-            responseHttpVersion: null,
-            durationMs: 0,
-          })
-        );
-        return;
-      }
-    }
-
-    const requestChunks: Buffer[] = [];
-    ctx.onRequestData((_ctxReq: any, chunk: Buffer, cb: (_err: null, next: Buffer) => void) => {
-      requestChunks.push(chunk);
-      cb(null, chunk);
-    });
-    ctx.onRequestEnd((ctxReq: any, cb: () => void) => {
-      ctxReq._requestBody = Buffer.concat(requestChunks);
-      ctxReq._requestEndAt = Date.now();
-      cb();
-    });
-
-    const responseChunks: Buffer[] = [];
-    ctx.onResponseData((_ctxRes: any, chunk: Buffer, cb: (_err: null, next: Buffer) => void) => {
-      responseChunks.push(chunk);
-      if (!_ctxRes._responseStartAt) {
-        _ctxRes._responseStartAt = Date.now();
-      }
-      cb(null, chunk);
-    });
-    ctx.onResponseEnd((ctxRes: any, cb: () => void) => {
-      ctxRes._responseEndAt = Date.now();
-      if (!ctxRes._responseStartAt) {
-        ctxRes._responseStartAt = ctxRes._responseEndAt;
-      }
-      broadcastEntry(
-        buildEntry({
-          target: toTargetUrl(ctxRes),
-          request: ctxRes.clientToProxyRequest,
-          requestHeadersOverride: ctxRes._overrideHeaders,
-          status: ctxRes.serverToProxyResponse?.statusCode,
-          responseHeaders: ctxRes.serverToProxyResponse?.headers,
-          requestBody: ctxRes._requestBody || Buffer.alloc(0),
-          responseBody: Buffer.concat(responseChunks),
-          responseHttpVersion: ctxRes.serverToProxyResponse?.httpVersion,
-          durationMs: ctxRes._startAt ? Date.now() - ctxRes._startAt : null,
-          requestStartAt: ctxRes._requestStartAt ?? ctxRes._startAt ?? null,
-          requestEndAt: ctxRes._requestEndAt ?? null,
-          responseStartAt: ctxRes._responseStartAt ?? null,
-          responseEndAt: ctxRes._responseEndAt ?? null,
-        })
-      );
-      cb();
-    });
-
-    if (delayMs > 0) {
-      setTimeout(() => callback(), delayMs);
-      return;
-    }
-    callback();
   });
 
   const listenOnPort = (port: number) =>
     new Promise<void>((resolve, reject) => {
-      proxy.listen(
-        {
-          port,
-          host: listenHost,
-          sslCaDir: caDir,
-          forceSNI: true,
-        },
-        (err: { code?: string } | null) => {
-          if (err) return reject(err);
-          return resolve();
+      const done = async () => {
+        try {
+          await proxy.start(port, listenHost);
+          resolve();
+        } catch (err: any) {
+          reject(err);
         }
-      );
+      };
+      void done();
     });
 
   let port = PROXY_PORT_START;
@@ -195,11 +262,10 @@ export const startMitmProxy = async () => {
   const displayHost = listenHost === '0.0.0.0' ? getLocalNetworkIp() || 'localhost' : 'localhost';
   setProxyHost(displayHost);
   setProxyInstance(proxy);
-  const caCertPath = path.join(caDir, 'certs', 'ca.pem');
-  setCaCertPath(caCertPath);
+  setCaCertPath(certPath);
   console.log(`Hermes Proxy MITM listening on http://${listenHost}:${port}`);
   console.log(`Hermes Proxy endpoint for clients: http://${displayHost}:${port}`);
-  console.log(`Root CA generated at: ${caCertPath}`);
+  console.log(`Root CA generated at: ${certPath}`);
   broadcastCaReady();
   broadcastPortReady();
   broadcastEndpointReady();
@@ -207,8 +273,8 @@ export const startMitmProxy = async () => {
 
 export const stopMitmProxy = async () => {
   const proxyInstance = getProxyInstance();
-  const closeProxy = proxyInstance?.close;
-  if (!closeProxy) {
+  const stopProxy = proxyInstance?.stop;
+  if (!stopProxy) {
     setProxyInstance(null);
     return;
   }
@@ -222,13 +288,12 @@ export const stopMitmProxy = async () => {
     };
 
     try {
-      if (closeProxy.length > 0) {
-        closeProxy(done);
-        setTimeout(done, 250);
-      } else {
-        closeProxy();
-        done();
-      }
+      Promise.resolve(stopProxy())
+        .then(() => done())
+        .catch((err) => {
+          console.error('Failed to stop proxy', err);
+          done();
+        });
     } catch (err) {
       console.error('Failed to stop MITM proxy', err);
       done();
