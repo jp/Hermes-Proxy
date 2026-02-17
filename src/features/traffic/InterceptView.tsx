@@ -28,9 +28,9 @@ type InterceptViewProps = {
   onToggleRequest: () => void;
   onToggleResponse: () => void;
   requestView: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart';
-  responseView: 'headers' | 'query' | 'body' | 'raw' | 'summary';
+  responseView: 'headers' | 'body' | 'raw' | 'summary';
   onRequestViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart') => void;
-  onResponseViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary') => void;
+  onResponseViewChange: (view: 'headers' | 'body' | 'raw' | 'summary') => void;
   requestLine: string;
   responseLine: string;
   requestUrlDraft: string;
@@ -209,7 +209,6 @@ function InterceptView({
   ] as const;
   const responseTabs = [
     { id: 'headers', label: 'Header' },
-    { id: 'query', label: 'Query' },
     { id: 'body', label: 'Body' },
     { id: 'raw', label: 'Raw' },
     { id: 'summary', label: 'Summary' },
@@ -652,11 +651,6 @@ function InterceptView({
                           </div>
                         </div>
                       </>
-                    )}
-                    {responseView === 'query' && (
-                      <div className="plain-field" aria-label="Response query">
-                        <div className="empty">No query parameters</div>
-                      </div>
                     )}
                     {responseView === 'body' && (
                       <div className="plain-field" aria-label="Response body">

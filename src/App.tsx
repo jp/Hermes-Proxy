@@ -41,7 +41,7 @@ function App() {
   const [requestView, setRequestView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart'>(
     'headers'
   );
-  const [responseView, setResponseView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary'>('headers');
+  const [responseView, setResponseView] = useState<'headers' | 'body' | 'raw' | 'summary'>('headers');
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
