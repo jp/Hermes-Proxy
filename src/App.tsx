@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-markup';
@@ -57,6 +57,15 @@ function App() {
   const splitRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number; containerWidth: number } | null>(null);
   const rulesReadyRef = useRef(false);
+  const handleInspectEntry = useCallback((entryId: string) => {
+    if (!entryId) return;
+    setActiveTab('intercept');
+    setSelectedIds([entryId]);
+    setSelectedId(entryId);
+    lastSelectedIdRef.current = entryId;
+    setRequestCollapsed(false);
+    setResponseCollapsed(false);
+  }, []);
 
   useEffect(() => {
     let cleanup;
@@ -144,7 +153,7 @@ function App() {
       offAddRule?.();
       offRulesUpdated?.();
     };
-  }, []);
+  }, [handleInspectEntry]);
 
   useEffect(() => {
     if (!rulesReadyRef.current) return;
@@ -732,6 +741,7 @@ function App() {
           onSelectEntry={handleSelectEntry}
           onSelectAll={handleSelectAll}
           onShowContextMenu={(entryIds) => window.electronAPI?.showTrafficContextMenu?.(entryIds)}
+          onInspectEntry={handleInspectEntry}
           proxyHost={proxyHost}
           proxyPort={proxyPort}
           isResizing={isResizing}

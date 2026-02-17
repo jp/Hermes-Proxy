@@ -14,6 +14,7 @@ type InterceptViewProps = {
   ) => void;
   onSelectAll: (ids: string[]) => void;
   onShowContextMenu: (entryIds: string[]) => void;
+  onInspectEntry: (entryId: string) => void;
   proxyHost: string;
   proxyPort: number;
   isResizing: boolean;
@@ -68,6 +69,7 @@ function InterceptView({
   onSelectEntry,
   onSelectAll,
   onShowContextMenu,
+  onInspectEntry,
   proxyHost,
   proxyPort,
   isResizing,
@@ -271,6 +273,10 @@ function InterceptView({
     const maxEnd = Math.max(...rows.map((row) => row.endMs));
     const rangeMs = Math.max(1, maxEnd - minStart);
     return { rows, minStart, rangeMs };
+  }, [entries, selected]);
+  const selectedParent = React.useMemo(() => {
+    if (!selected?.parentId) return null;
+    return entries.find((entry) => entry.id === selected.parentId) ?? null;
   }, [entries, selected]);
   return (
     <div className="app intercept">
@@ -527,6 +533,18 @@ function InterceptView({
                           <div className="empty">No timing data for this request yet.</div>
                         ) : (
                           <>
+                            {selectedParent && (
+                              <button
+                                type="button"
+                                className="chart-parent-return"
+                                onClick={() => onInspectEntry(selectedParent.id)}
+                              >
+                                <i className="fa-solid fa-reply" aria-hidden="true"></i>
+                                <span>
+                                  Back to parent request
+                                </span>
+                              </button>
+                            )}
                             <div className="chart-legend">
                               <span className="legend-item">
                                 <span className="legend-swatch request"></span>
@@ -551,7 +569,11 @@ function InterceptView({
                                 const waitOffset = startOffset + sendWidth;
                                 const receiveOffset = waitOffset + waitWidth;
                                 return (
-                                  <div className="chart-row" key={row.entry.id}>
+                                  <div
+                                    className={`chart-row ${selected?.id === row.entry.id ? 'active' : ''}`}
+                                    key={row.entry.id}
+                                    onClick={() => onInspectEntry(row.entry.id)}
+                                  >
                                     <div className="chart-label">
                                       <span className="chart-method">{row.entry.method}</span>
                                       <span className="chart-path">

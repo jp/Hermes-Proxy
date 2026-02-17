@@ -861,6 +861,28 @@ tbody tr.selected {
   padding: 0.75rem;
 }
 
+.chart-parent-return {
+  width: 100%;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  color: #dbeafe;
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.chart-parent-return:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(147, 197, 253, 0.55);
+}
+
 .chart-legend {
   display: flex;
   align-items: center;
@@ -912,6 +934,18 @@ tbody tr.selected {
   grid-template-columns: minmax(140px, 220px) 1fr;
   gap: 0.75rem;
   align-items: center;
+  border-radius: 8px;
+  padding: 0.25rem 0.35rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.chart-row:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.chart-row.active {
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .chart-label {

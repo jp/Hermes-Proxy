@@ -280,6 +280,141 @@ describe('App traffic actions', () => {
     await user.click(screen.getByLabelText(/clear traffic/i));
     expect(clearTraffic).toHaveBeenCalledTimes(1);
   });
+
+  it('inspects a chart sub-query on single click', async () => {
+    const repeatRequest = vi.fn();
+    const entries = [
+      {
+        id: 'entry-parent',
+        method: 'GET',
+        status: 200,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/root',
+        query: '',
+        parentId: null,
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+        timestamp: 1700000000000,
+        requestStartAt: 1700000000000,
+        timingSendMs: 8,
+        timingWaitMs: 22,
+        timingReceiveMs: 14,
+      },
+      {
+        id: 'entry-child',
+        method: 'GET',
+        status: 201,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/sub',
+        query: '?q=1',
+        parentId: 'entry-parent',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+        timestamp: 1700000000001,
+        requestStartAt: 1700000000001,
+        timingSendMs: 4,
+        timingWaitMs: 15,
+        timingReceiveMs: 7,
+      },
+    ];
+    window.electronAPI = buildElectronApi({
+      getHistory: () => Promise.resolve(entries),
+      repeatRequest,
+    });
+
+    render(<App />);
+    const user = userEvent.setup();
+
+    await screen.findByText('/root');
+    await user.click(screen.getByRole('tab', { name: 'Chart' }));
+
+    await user.click(screen.getByText('/sub?q=1'));
+
+    await user.click(screen.getByLabelText(/repeat request/i));
+    expect(repeatRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryId: 'entry-child',
+        url: 'http://api.local/sub?q=1',
+      })
+    );
+  });
+
+  it('returns to the parent request from the chart view', async () => {
+    const repeatRequest = vi.fn();
+    const entries = [
+      {
+        id: 'entry-parent',
+        method: 'GET',
+        status: 200,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/root',
+        query: '',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+        timestamp: 1700000000000,
+        requestStartAt: 1700000000000,
+        timingSendMs: 8,
+        timingWaitMs: 20,
+        timingReceiveMs: 12,
+      },
+      {
+        id: 'entry-child',
+        method: 'GET',
+        status: 201,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/sub',
+        query: '',
+        parentId: 'entry-parent',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+        timestamp: 1700000000001,
+        requestStartAt: 1700000000001,
+        timingSendMs: 4,
+        timingWaitMs: 12,
+        timingReceiveMs: 6,
+      },
+    ];
+    window.electronAPI = buildElectronApi({
+      getHistory: () => Promise.resolve(entries),
+      repeatRequest,
+    });
+
+    render(<App />);
+    const user = userEvent.setup();
+
+    await screen.findByText('/root');
+    await user.click(screen.getByText('/sub'));
+    await user.click(screen.getByRole('tab', { name: 'Chart' }));
+    await user.click(screen.getByRole('button', { name: /back to parent request/i }));
+
+    await user.click(screen.getByLabelText(/repeat request/i));
+    expect(repeatRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryId: 'entry-parent',
+        url: 'http://api.local/root',
+      })
+    );
+  });
 });
 
 describe('App rules interactions', () => {
