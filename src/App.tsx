@@ -57,6 +57,39 @@ function App() {
   const splitRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number; containerWidth: number } | null>(null);
   const rulesReadyRef = useRef(false);
+  const scrollTrafficEntryIntoView = useCallback((entryId: string) => {
+    const maxAttempts = 6;
+    const tryScroll = (attempt: number) => {
+      const container = tableRef.current;
+      if (!container) {
+        if (attempt < maxAttempts) {
+          window.requestAnimationFrame(() => tryScroll(attempt + 1));
+        }
+        return;
+      }
+
+      const row = Array.from(container.querySelectorAll<HTMLTableRowElement>('tbody tr[data-entry-id]')).find(
+        (candidate) => candidate.dataset.entryId === entryId
+      );
+      if (!row) {
+        if (attempt < maxAttempts) {
+          window.requestAnimationFrame(() => tryScroll(attempt + 1));
+        }
+        return;
+      }
+
+      const rowTop = row.offsetTop;
+      const rowBottom = rowTop + row.offsetHeight;
+      const viewTop = container.scrollTop;
+      const viewBottom = viewTop + container.clientHeight;
+      if (rowTop >= viewTop && rowBottom <= viewBottom) return;
+
+      const centeredTop = Math.max(0, rowTop - (container.clientHeight - row.offsetHeight) / 2);
+      container.scrollTo({ top: centeredTop, behavior: 'smooth' });
+    };
+
+    tryScroll(0);
+  }, []);
   const handleInspectEntry = useCallback((entryId: string) => {
     if (!entryId) return;
     setActiveTab('intercept');
@@ -65,7 +98,8 @@ function App() {
     lastSelectedIdRef.current = entryId;
     setRequestCollapsed(false);
     setResponseCollapsed(false);
-  }, []);
+    scrollTrafficEntryIntoView(entryId);
+  }, [scrollTrafficEntryIntoView]);
 
   useEffect(() => {
     let cleanup;

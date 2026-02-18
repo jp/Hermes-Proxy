@@ -313,6 +313,7 @@ function InterceptView({
                 {filteredEntries.map((entry) => (
                   <tr
                     key={entry.id}
+                    data-entry-id={entry.id}
                     className={selectedIds.includes(entry.id) ? 'selected' : ''}
                     onClick={(event) =>
                       onSelectEntry(
