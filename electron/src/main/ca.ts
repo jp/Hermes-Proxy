@@ -21,6 +21,19 @@ const getCertCommonName = (pemText: string) => {
   }
 };
 
+const hasPositiveSerialNumber = (pemText: string) => {
+  try {
+    const cert = forge.pki.certificateFromPem(pemText);
+    const serial = String(cert?.serialNumber || '').replace(/[^0-9a-f]/gi, '').toLowerCase();
+    if (!serial) return false;
+    const firstNibble = Number.parseInt(serial[0], 16);
+    if (Number.isNaN(firstNibble)) return false;
+    return firstNibble < 8;
+  } catch (err) {
+    return false;
+  }
+};
+
 const toHexPairs = (value: string) => {
   const normalized = value.replace(/[^0-9a-f]/gi, '').toUpperCase();
   if (!normalized) return '';
@@ -214,7 +227,7 @@ export const ensureHermesCa = async (caDir: string) => {
   if (fs.existsSync(certPath) && fs.existsSync(privateKeyPath)) {
     const pemText = fs.readFileSync(certPath, 'utf8');
     const commonName = getCertCommonName(pemText);
-    if (commonName === 'HermesProxyCA') {
+    if (commonName === 'HermesProxyCA' && hasPositiveSerialNumber(pemText)) {
       const keyPem = fs.readFileSync(privateKeyPath, 'utf8');
       try {
         const pkcs8Pem = toPkcs8Pem(keyPem);

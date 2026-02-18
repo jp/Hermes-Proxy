@@ -1,9 +1,13 @@
+import crypto from 'crypto';
+
 export const randomSerialNumber = () => {
-  let serial = '';
-  for (let i = 0; i < 4; i += 1) {
-    serial += `00000000${Math.floor(Math.random() * 256 ** 4).toString(16)}`.slice(-8);
+  // X.509 serials are signed INTEGERs in ASN.1. Keep MSB clear to ensure positive values.
+  const bytes = crypto.randomBytes(16);
+  bytes[0] &= 0x7f;
+  if (bytes[0] === 0) {
+    bytes[0] = 0x01;
   }
-  return serial;
+  return bytes.toString('hex');
 };
 
 export const isTimeoutError = (err: unknown) => {
