@@ -93,14 +93,17 @@ export const startMitmProxy = async () => {
   await ensureHermesCa(caDir);
   const certPath = path.join(caDir, 'certs', 'ca.pem');
   const keyPath = path.join(caDir, 'keys', 'ca.private.key');
+  const proxySettings = getProxySettings();
+  const maxCaptureBodySizeMb = Math.max(1, Math.round(proxySettings.maxCaptureBodySizeMb || 5));
   const proxy: any = getLocal({
     http2: true,
     https: {
       certPath,
       keyPath,
     },
+    maxBodySize: maxCaptureBodySizeMb * 1024 * 1024,
   });
-  const listenHost = getProxySettings().listenOnAllInterfaces ? '0.0.0.0' : '127.0.0.1';
+  const listenHost = proxySettings.listenOnAllInterfaces ? '0.0.0.0' : '127.0.0.1';
 
   const pendingRequests = new Map<
     string,

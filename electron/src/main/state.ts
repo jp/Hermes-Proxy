@@ -11,6 +11,7 @@ let proxyHost = 'localhost';
 let rulesFilePath: string | null = null;
 let proxySettings: ProxySettings = {
   listenOnAllInterfaces: true,
+  maxCaptureBodySizeMb: 5,
 };
 
 export const getEntries = () => entries;

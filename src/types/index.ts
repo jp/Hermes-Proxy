@@ -97,6 +97,7 @@ export interface PerformanceData {
 
 export interface ProxySettings {
   listenOnAllInterfaces: boolean;
+  maxCaptureBodySizeMb: number;
 }
 
 export interface CertificateAttribute {

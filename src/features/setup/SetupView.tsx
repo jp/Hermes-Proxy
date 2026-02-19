@@ -8,6 +8,8 @@ type SetupViewProps = {
   onExportCa: () => void;
   listenOnAllInterfaces: boolean;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
+  maxCaptureBodySizeMb: number;
+  onMaxCaptureBodySizeChange: (value: number) => void;
   settingsBusy: boolean;
 };
 
@@ -18,9 +20,29 @@ function SetupView({
   onExportCa,
   listenOnAllInterfaces,
   onListenOnAllInterfacesChange,
+  maxCaptureBodySizeMb,
+  onMaxCaptureBodySizeChange,
   settingsBusy,
 }: SetupViewProps) {
   const proxyHost = listenOnAllInterfaces ? '0.0.0.0' : 'localhost';
+  const [maxCaptureBodySizeDraft, setMaxCaptureBodySizeDraft] = React.useState(String(maxCaptureBodySizeMb));
+  React.useEffect(() => {
+    setMaxCaptureBodySizeDraft(String(maxCaptureBodySizeMb));
+  }, [maxCaptureBodySizeMb]);
+
+  const commitMaxCaptureBodySize = () => {
+    const parsed = Number(maxCaptureBodySizeDraft);
+    if (!Number.isFinite(parsed)) {
+      setMaxCaptureBodySizeDraft(String(maxCaptureBodySizeMb));
+      return;
+    }
+    const normalized = Math.max(1, Math.round(parsed));
+    setMaxCaptureBodySizeDraft(String(normalized));
+    if (normalized !== maxCaptureBodySizeMb) {
+      onMaxCaptureBodySizeChange(normalized);
+    }
+  };
+
   const formatIdentity = (items: CaCertificateDetails['subject']) =>
     items.map((item) => `${item.shortName || item.name || item.oid}=${item.value}`).join(', ');
   const subjectIdentity = caDetails ? formatIdentity(caDetails.subject) : '';
@@ -50,6 +72,25 @@ function SetupView({
             <span>
               Listen on all interfaces (<code>0.0.0.0</code>) for remote clients
             </span>
+          </label>
+          <label className="setup-field">
+            <span>Max captured request/response body size (MB)</span>
+            <input
+              className="plain-input setup-number-input"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={maxCaptureBodySizeDraft}
+              disabled={settingsBusy}
+              onChange={(event) => setMaxCaptureBodySizeDraft(event.target.value)}
+              onBlur={commitMaxCaptureBodySize}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  commitMaxCaptureBodySize();
+                }
+              }}
+            />
           </label>
           <p>
             Most tools can be configured to do so by using the above address as an HTTP or HTTPS proxy. You can also

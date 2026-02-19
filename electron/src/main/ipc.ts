@@ -37,7 +37,9 @@ export const registerIpcHandlers = () => {
       ...current,
       ...(typeof nextSettings === 'object' && nextSettings ? nextSettings : {}),
     });
-    const shouldRestart = merged.listenOnAllInterfaces !== current.listenOnAllInterfaces;
+    const shouldRestart =
+      merged.listenOnAllInterfaces !== current.listenOnAllInterfaces ||
+      merged.maxCaptureBodySizeMb !== current.maxCaptureBodySizeMb;
     setProxySettings(merged);
 
     try {

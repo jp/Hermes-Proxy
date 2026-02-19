@@ -84,6 +84,7 @@ export interface RepeatRequestOverrides {
 
 export interface ProxySettings {
   listenOnAllInterfaces: boolean;
+  maxCaptureBodySizeMb: number;
 }
 
 export interface CertificateAttribute {

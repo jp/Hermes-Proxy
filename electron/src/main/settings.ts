@@ -4,8 +4,21 @@ import { app } from 'electron';
 import { SETTINGS_FILENAME } from './constants';
 import type { ProxySettings } from './types';
 
+const DEFAULT_MAX_CAPTURE_BODY_SIZE_MB = 5;
+const MIN_CAPTURE_BODY_SIZE_MB = 1;
+const MAX_CAPTURE_BODY_SIZE_MB = 1024;
+
+const normalizeMaxCaptureBodySizeMb = (value: unknown) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_MAX_CAPTURE_BODY_SIZE_MB;
+  }
+  const rounded = Math.round(value);
+  return Math.min(MAX_CAPTURE_BODY_SIZE_MB, Math.max(MIN_CAPTURE_BODY_SIZE_MB, rounded));
+};
+
 export const getDefaultProxySettings = (): ProxySettings => ({
   listenOnAllInterfaces: true,
+  maxCaptureBodySizeMb: DEFAULT_MAX_CAPTURE_BODY_SIZE_MB,
 });
 
 export const normalizeProxySettings = (settings: unknown): ProxySettings => {
@@ -15,6 +28,7 @@ export const normalizeProxySettings = (settings: unknown): ProxySettings => {
       typeof current.listenOnAllInterfaces === 'boolean'
         ? current.listenOnAllInterfaces
         : getDefaultProxySettings().listenOnAllInterfaces,
+    maxCaptureBodySizeMb: normalizeMaxCaptureBodySizeMb(current.maxCaptureBodySizeMb),
   };
 };
 

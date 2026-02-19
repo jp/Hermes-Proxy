@@ -23,7 +23,7 @@ import {
   summarizeCacheability,
 } from './utils/http';
 import { createRule } from './utils/rules';
-import type { CaCertificateDetails, PerformanceData, ProxyEntry, RequestHeaderDraft, Rule } from './types';
+import type { CaCertificateDetails, PerformanceData, ProxyEntry, ProxySettings, RequestHeaderDraft, Rule } from './types';
 
 const MAX_ENTRIES = 20000;
 
@@ -50,6 +50,7 @@ function App() {
   const [proxyHost, setProxyHost] = useState('localhost');
   const [proxyPort, setProxyPort] = useState(8000);
   const [listenOnAllInterfaces, setListenOnAllInterfaces] = useState(true);
+  const [maxCaptureBodySizeMb, setMaxCaptureBodySizeMb] = useState(5);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [splitPercent, setSplitPercent] = useState(55);
   const [isResizing, setIsResizing] = useState(false);
@@ -250,6 +251,9 @@ function App() {
         if (typeof settings?.listenOnAllInterfaces === 'boolean') {
           setListenOnAllInterfaces(settings.listenOnAllInterfaces);
         }
+        if (typeof settings?.maxCaptureBodySizeMb === 'number' && Number.isFinite(settings.maxCaptureBodySizeMb)) {
+          setMaxCaptureBodySizeMb(settings.maxCaptureBodySizeMb);
+        }
       });
     }
 
@@ -432,17 +436,18 @@ function App() {
     await window.electronAPI?.loadRules?.();
   };
 
-  const handleListenOnAllInterfacesChange = async (enabled: boolean) => {
+  const applyProxySettingsUpdate = async (nextSettings: Partial<ProxySettings>, onError: () => void) => {
     const api = window.electronAPI;
-    const previousValue = listenOnAllInterfaces;
-    setListenOnAllInterfaces(enabled);
     if (!api?.setProxySettings) return;
 
     setSettingsBusy(true);
     try {
-      const result = await api.setProxySettings({ listenOnAllInterfaces: enabled });
+      const result = await api.setProxySettings(nextSettings);
       if (typeof result?.settings?.listenOnAllInterfaces === 'boolean') {
         setListenOnAllInterfaces(result.settings.listenOnAllInterfaces);
+      }
+      if (typeof result?.settings?.maxCaptureBodySizeMb === 'number') {
+        setMaxCaptureBodySizeMb(result.settings.maxCaptureBodySizeMb);
       }
       if (typeof result?.proxyPort === 'number' && result.proxyPort > 0) {
         setProxyPort(result.proxyPort);
@@ -457,10 +462,26 @@ function App() {
       const details = await api.getCaCertificateDetails?.();
       setCaDetails(details || null);
     } catch {
-      setListenOnAllInterfaces(previousValue);
+      onError();
     } finally {
       setSettingsBusy(false);
     }
+  };
+
+  const handleListenOnAllInterfacesChange = async (enabled: boolean) => {
+    const previousValue = listenOnAllInterfaces;
+    setListenOnAllInterfaces(enabled);
+    await applyProxySettingsUpdate({ listenOnAllInterfaces: enabled }, () => {
+      setListenOnAllInterfaces(previousValue);
+    });
+  };
+
+  const handleMaxCaptureBodySizeChange = async (sizeMb: number) => {
+    const previousValue = maxCaptureBodySizeMb;
+    setMaxCaptureBodySizeMb(sizeMb);
+    await applyProxySettingsUpdate({ maxCaptureBodySizeMb: sizeMb }, () => {
+      setMaxCaptureBodySizeMb(previousValue);
+    });
   };
 
   const handleAddRule = () => {
@@ -834,6 +855,8 @@ function App() {
           onExportCa={() => window.electronAPI?.exportCaCertificate?.()}
           listenOnAllInterfaces={listenOnAllInterfaces}
           onListenOnAllInterfacesChange={handleListenOnAllInterfacesChange}
+          maxCaptureBodySizeMb={maxCaptureBodySizeMb}
+          onMaxCaptureBodySizeChange={handleMaxCaptureBodySizeChange}
           settingsBusy={settingsBusy}
         />
       )}
