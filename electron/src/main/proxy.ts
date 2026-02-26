@@ -88,6 +88,28 @@ const toAbsoluteRequestUrl = (request: any, headers: Record<string, unknown>) =>
   return rawUrl;
 };
 
+const applyGlobalMockttpBodyLimit = (limitBytes: number) => {
+  const boundedLimitBytes = Math.max(1, Math.floor(limitBytes));
+  const bufferUtils = require('mockttp/dist/util/buffer-utils') as {
+    streamToBuffer: (input: unknown, maxSize?: number) => unknown;
+    __hermesOriginalStreamToBuffer?: (input: unknown, maxSize?: number) => unknown;
+    __hermesBodyLimitBytes?: number;
+  };
+
+  if (!bufferUtils.__hermesOriginalStreamToBuffer) {
+    bufferUtils.__hermesOriginalStreamToBuffer = bufferUtils.streamToBuffer;
+    bufferUtils.streamToBuffer = (input: unknown, maxSize?: number) => {
+      const configuredLimit =
+        typeof bufferUtils.__hermesBodyLimitBytes === 'number' ? bufferUtils.__hermesBodyLimitBytes : boundedLimitBytes;
+      const requestedLimit = typeof maxSize === 'number' && Number.isFinite(maxSize) ? maxSize : configuredLimit;
+      const effectiveLimit = Math.max(1, Math.min(requestedLimit, configuredLimit));
+      return bufferUtils.__hermesOriginalStreamToBuffer!(input, effectiveLimit);
+    };
+  }
+
+  bufferUtils.__hermesBodyLimitBytes = boundedLimitBytes;
+};
+
 export const startMitmProxy = async () => {
   const caDir = path.join(app.getPath('userData'), 'mitm-ca');
   await ensureHermesCa(caDir);
@@ -95,13 +117,15 @@ export const startMitmProxy = async () => {
   const keyPath = path.join(caDir, 'keys', 'ca.private.key');
   const proxySettings = getProxySettings();
   const maxCaptureBodySizeMb = Math.max(1, Math.round(proxySettings.maxCaptureBodySizeMb || 5));
+  const maxCaptureBodySizeBytes = maxCaptureBodySizeMb * 1024 * 1024;
+  applyGlobalMockttpBodyLimit(maxCaptureBodySizeBytes);
   const proxy: any = getLocal({
     http2: true,
     https: {
       certPath,
       keyPath,
     },
-    maxBodySize: maxCaptureBodySizeMb * 1024 * 1024,
+    maxBodySize: maxCaptureBodySizeBytes,
   });
   const listenHost = proxySettings.listenOnAllInterfaces ? '0.0.0.0' : '127.0.0.1';
 
