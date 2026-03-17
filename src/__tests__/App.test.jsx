@@ -51,6 +51,10 @@ describe('App rules UI', () => {
     await user.selectOptions(actionSelect, 'overrideHeaders');
     await user.click(screen.getByTitle(/add override header/i));
     expect(screen.getAllByPlaceholderText(/header name/i).length).toBeGreaterThan(0);
+
+    await user.selectOptions(actionSelect, 'overrideResponse');
+    expect(screen.getByLabelText(/status code/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/response body/i)).toBeInTheDocument();
   });
 });
 

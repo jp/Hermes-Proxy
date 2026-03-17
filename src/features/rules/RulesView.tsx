@@ -220,7 +220,7 @@ function RulesView({
                       className="rule-action-select"
                       value={rule.actions.type}
                       onChange={(event) => {
-                        const type = event.target.value;
+                        const type = event.target.value as Rule['actions']['type'];
                         onUpdateRule(index, (current) => ({
                           ...current,
                           actions: {
@@ -228,6 +228,14 @@ function RulesView({
                             type,
                             delayMs: type === 'delay' ? current.actions.delayMs : 0,
                             overrideHeaders: type === 'overrideHeaders' ? current.actions.overrideHeaders : [],
+                            overrideResponse:
+                              type === 'overrideResponse'
+                                ? current.actions.overrideResponse
+                                : {
+                                    statusCode: 200,
+                                    headers: [],
+                                    body: '',
+                                  },
                           },
                         }));
                       }}
@@ -235,6 +243,7 @@ function RulesView({
                       <option value="none">None</option>
                       <option value="delay">Wait before continuing</option>
                       <option value="overrideHeaders">Override headers</option>
+                      <option value="overrideResponse">Override response</option>
                       <option value="close">Close the connection</option>
                     </select>
                   </label>
@@ -252,6 +261,30 @@ function RulesView({
                           onUpdateRule(index, (current) => ({
                             ...current,
                             actions: { ...current.actions, delayMs },
+                          }));
+                        }}
+                      />
+                    </label>
+                  )}
+                  {rule.actions.type === 'overrideResponse' && (
+                    <label className="rule-field">
+                      <span>Status code</span>
+                      <input
+                        type="number"
+                        min="100"
+                        max="599"
+                        value={rule.actions.overrideResponse.statusCode}
+                        onChange={(event) => {
+                          const statusCode = Number(event.target.value || 200);
+                          onUpdateRule(index, (current) => ({
+                            ...current,
+                            actions: {
+                              ...current.actions,
+                              overrideResponse: {
+                                ...current.actions.overrideResponse,
+                                statusCode,
+                              },
+                            },
                           }));
                         }}
                       />
@@ -329,6 +362,125 @@ function RulesView({
                       </div>
                     ))}
                   </div>
+                )}
+                {rule.actions.type === 'overrideResponse' && (
+                  <>
+                    <div className="rule-subsection">
+                      <div className="rule-subheader">
+                        <span>Response headers</span>
+                        <button
+                          className="icon-btn rule-add-btn"
+                          type="button"
+                          aria-label="Add response header"
+                          title="Add response header"
+                          onClick={() =>
+                            onUpdateRule(index, (current) => ({
+                              ...current,
+                              actions: {
+                                ...current.actions,
+                                overrideResponse: {
+                                  ...current.actions.overrideResponse,
+                                  headers: [...current.actions.overrideResponse.headers, { name: '', value: '' }],
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <i className="fa-solid fa-plus"></i>
+                        </button>
+                      </div>
+                      {rule.actions.overrideResponse.headers.length === 0 && <div className="empty">No headers</div>}
+                      {rule.actions.overrideResponse.headers.map((header, headerIndex) => (
+                        <div className="headers-row rule-headers-row" key={`response-header-${headerIndex}`}>
+                          <input
+                            className="header-input header-name-input"
+                            type="text"
+                            value={header.name}
+                            placeholder="Header name"
+                            onChange={(event) => {
+                              const headers = [...rule.actions.overrideResponse.headers];
+                              headers[headerIndex] = { ...headers[headerIndex], name: event.target.value };
+                              onUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: {
+                                  ...current.actions,
+                                  overrideResponse: {
+                                    ...current.actions.overrideResponse,
+                                    headers,
+                                  },
+                                },
+                              }));
+                            }}
+                          />
+                          <input
+                            className="header-input header-value-input"
+                            type="text"
+                            value={header.value}
+                            placeholder="Header value"
+                            onChange={(event) => {
+                              const headers = [...rule.actions.overrideResponse.headers];
+                              headers[headerIndex] = { ...headers[headerIndex], value: event.target.value };
+                              onUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: {
+                                  ...current.actions,
+                                  overrideResponse: {
+                                    ...current.actions.overrideResponse,
+                                    headers,
+                                  },
+                                },
+                              }));
+                            }}
+                          />
+                          <button
+                            className="icon-btn"
+                            type="button"
+                            aria-label="Remove response header"
+                            title="Remove response header"
+                            onClick={() => {
+                              const headers = rule.actions.overrideResponse.headers.filter(
+                                (_, idx) => idx !== headerIndex
+                              );
+                              onUpdateRule(index, (current) => ({
+                                ...current,
+                                actions: {
+                                  ...current.actions,
+                                  overrideResponse: {
+                                    ...current.actions.overrideResponse,
+                                    headers,
+                                  },
+                                },
+                              }));
+                            }}
+                          >
+                            <i className="fa-solid fa-xmark"></i>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rule-subsection">
+                      <label className="rule-field">
+                        <span>Response body</span>
+                        <textarea
+                          rows={8}
+                          value={rule.actions.overrideResponse.body}
+                          placeholder='{"ok":true}'
+                          onChange={(event) =>
+                            onUpdateRule(index, (current) => ({
+                              ...current,
+                              actions: {
+                                ...current.actions,
+                                overrideResponse: {
+                                  ...current.actions.overrideResponse,
+                                  body: event.target.value,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

@@ -54,7 +54,13 @@ export interface RuleHeaderOverride {
   value: string;
 }
 
-export type RuleActionType = 'none' | 'delay' | 'overrideHeaders' | 'close';
+export interface RuleResponseOverride {
+  statusCode: number;
+  headers: RuleHeaderOverride[];
+  body: string;
+}
+
+export type RuleActionType = 'none' | 'delay' | 'overrideHeaders' | 'overrideResponse' | 'close';
 
 export interface Rule {
   id: string;
@@ -70,6 +76,7 @@ export interface Rule {
     type: RuleActionType;
     delayMs: number;
     overrideHeaders: RuleHeaderOverride[];
+    overrideResponse: RuleResponseOverride;
   };
 }
 

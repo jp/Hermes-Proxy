@@ -6,6 +6,7 @@ import { ensureHermesCa } from './ca';
 import { broadcastCaReady, broadcastEndpointReady, broadcastEntry, broadcastPortReady } from './broadcast';
 import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
+import { headersListToObject } from './http';
 import { getLocalNetworkIp } from './network';
 import { matchRule } from './rules';
 import {
@@ -164,6 +165,13 @@ export const startMitmProxy = async () => {
         req._overrideHeaders = activeRule.actions.overrideHeaders;
         const nextHeaders = applyHeaderOverrides(requestHeaders, activeRule.actions.overrideHeaders);
         return { headers: nextHeaders };
+      }
+      if (activeRule.actions.type === 'overrideResponse') {
+        return {
+          statusCode: activeRule.actions.overrideResponse.statusCode,
+          headers: headersListToObject(activeRule.actions.overrideResponse.headers),
+          body: activeRule.actions.overrideResponse.body,
+        };
       }
       if (activeRule.actions.type === 'close') {
         return {

@@ -13,7 +13,7 @@ It captures requests/responses, lets you replay requests, and export/import HAR 
 - Export all traffic as HAR
 - Import HAR files into the traffic table
 - Save response bodies
-- Rules engine to match method/host/url/headers and either delay requests, override headers, or close connections
+- Rules engine to match method/host/url/headers and either delay requests, override headers, override full responses, or close connections
 
 ## Releases and Binaries
 

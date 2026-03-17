@@ -2,7 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import { RULES_FILENAME } from './constants';
-import type { HeaderMap, Rule, RuleHeaderMatcher, RuleHeaderOverride, RuleRequestInfo } from './types';
+import type {
+  HeaderMap,
+  Rule,
+  RuleHeaderMatcher,
+  RuleHeaderOverride,
+  RuleRequestInfo,
+  RuleResponseOverride,
+} from './types';
 import { normalizeHeaderValue, toLower } from './http';
 import { getRulesFilePath, setRulesFilePath } from './state';
 
@@ -17,16 +24,26 @@ const normalizeHeaderList = (list: unknown) =>
 export const normalizeRule = (rule: Partial<Rule> | undefined, index: number): Rule => {
   const match = rule?.match || ({} as Rule['match']);
   const actions = rule?.actions || ({} as Rule['actions']);
+  const overrideResponse = actions.overrideResponse || ({} as RuleResponseOverride);
   const normalizeList = (list: unknown) =>
     (Array.isArray(list) ? list : [])
       .map((item) => String(item || '').trim())
       .filter(Boolean);
+  const normalizeStatusCode = (value: unknown) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 200;
+    const integer = Math.round(numeric);
+    if (integer < 100 || integer > 599) return 200;
+    return integer;
+  };
   const legacyType = actions.delayMs
     ? 'delay'
     : Array.isArray(actions.overrideHeaders) && actions.overrideHeaders.length
       ? 'overrideHeaders'
       : 'none';
-  const normalizedType = ['none', 'delay', 'overrideHeaders', 'close'].includes(actions.type as string)
+  const normalizedType = ['none', 'delay', 'overrideHeaders', 'overrideResponse', 'close'].includes(
+    actions.type as string
+  )
     ? (actions.type as Rule['actions']['type'])
     : legacyType;
 
@@ -44,6 +61,11 @@ export const normalizeRule = (rule: Partial<Rule> | undefined, index: number): R
       type: normalizedType,
       delayMs: Number.isFinite(Number(actions.delayMs)) ? Math.max(0, Number(actions.delayMs)) : 0,
       overrideHeaders: normalizeHeaderList(actions.overrideHeaders),
+      overrideResponse: {
+        statusCode: normalizeStatusCode(overrideResponse.statusCode),
+        headers: normalizeHeaderList(overrideResponse.headers),
+        body: String(overrideResponse.body || ''),
+      },
     },
   };
 };

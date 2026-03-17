@@ -16,6 +16,11 @@ const createRule = (): Rule => ({
     type: 'none',
     delayMs: 0,
     overrideHeaders: [],
+    overrideResponse: {
+      statusCode: 200,
+      headers: [],
+      body: '',
+    },
   },
 });
 
