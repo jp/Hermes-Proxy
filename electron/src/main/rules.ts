@@ -10,7 +10,7 @@ import type {
   RuleRequestInfo,
   RuleResponseOverride,
 } from './types';
-import { normalizeHeaderValue, toLower } from './http';
+import { headersListToObject, normalizeHeaderValue, toLower } from './http';
 import { getRulesFilePath, setRulesFilePath } from './state';
 
 const normalizeHeaderList = (list: unknown) =>
@@ -111,8 +111,7 @@ export const matchRule = (rule: Rule, requestInfo: RuleRequestInfo) => {
   if (!rule.enabled) return false;
   if (rule.match.methods.length) {
     const method = String(requestInfo.method || '').toUpperCase();
-    if (rule.match.methods.includes('*')) return true;
-    if (!rule.match.methods.includes(method)) return false;
+    if (!rule.match.methods.includes('*') && !rule.match.methods.includes(method)) return false;
   }
   if (!matchesSubstringList(requestInfo.host, rule.match.hosts)) return false;
   if (!matchesSubstringList(requestInfo.url, rule.match.urls)) return false;
@@ -122,6 +121,25 @@ export const matchRule = (rule: Rule, requestInfo: RuleRequestInfo) => {
     if (!matchesAll) return false;
   }
   return true;
+};
+
+export const buildRuleShortCircuitResponse = (rule: Rule | undefined) => {
+  if (!rule) return undefined;
+  if (rule.actions.type === 'overrideResponse') {
+    return {
+      response: {
+        statusCode: rule.actions.overrideResponse.statusCode,
+        headers: headersListToObject(rule.actions.overrideResponse.headers),
+        body: rule.actions.overrideResponse.body,
+      },
+    };
+  }
+  if (rule.actions.type === 'close') {
+    return {
+      response: 'close' as const,
+    };
+  }
+  return undefined;
 };
 
 export const buildRuleRequestInfo = (ctx: any, targetUrl: URL): RuleRequestInfo => ({

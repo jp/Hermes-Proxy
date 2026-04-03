@@ -6,9 +6,8 @@ import { ensureHermesCa } from './ca';
 import { broadcastCaReady, broadcastEndpointReady, broadcastEntry, broadcastPortReady } from './broadcast';
 import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
-import { headersListToObject } from './http';
 import { getLocalNetworkIp } from './network';
-import { matchRule } from './rules';
+import { buildRuleShortCircuitResponse, matchRule } from './rules';
 import {
   getProxyInstance,
   getProxySettings,
@@ -144,16 +143,17 @@ export const startMitmProxy = async () => {
   proxy.forAnyRequest().thenPassThrough({
     beforeRequest: async (req: any) => {
       const requestHeaders = normalizeHeaders(req.headers);
+      const requestUrl = toAbsoluteRequestUrl(req, requestHeaders);
       const requestInfo = {
         method: req.method || '',
         host: (() => {
           try {
-            return new URL(req.url || '').host || '';
+            return new URL(requestUrl || '').host || '';
           } catch (err) {
-            return '';
+            return firstHeaderValue(requestHeaders[':authority']) || firstHeaderValue(requestHeaders.host) || '';
           }
         })(),
-        url: req.url || '',
+        url: requestUrl || req.url || '',
         headers: requestHeaders,
       };
       const activeRule = getRules().find((rule) => matchRule(rule, requestInfo));
@@ -166,19 +166,8 @@ export const startMitmProxy = async () => {
         const nextHeaders = applyHeaderOverrides(requestHeaders, activeRule.actions.overrideHeaders);
         return { headers: nextHeaders };
       }
-      if (activeRule.actions.type === 'overrideResponse') {
-        return {
-          statusCode: activeRule.actions.overrideResponse.statusCode,
-          headers: headersListToObject(activeRule.actions.overrideResponse.headers),
-          body: activeRule.actions.overrideResponse.body,
-        };
-      }
-      if (activeRule.actions.type === 'close') {
-        return {
-          statusCode: 499,
-          body: 'Connection closed by rule',
-        };
-      }
+      const shortCircuitResponse = buildRuleShortCircuitResponse(activeRule);
+      if (shortCircuitResponse) return shortCircuitResponse;
       return undefined;
     },
   });
