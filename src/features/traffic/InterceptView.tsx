@@ -1,6 +1,6 @@
 import React from 'react';
 import { headersToList, statusTone } from '../../utils/http';
-import type { ProxyEntry, RequestHeaderDraft } from '../../types';
+import type { ProxyEntry, RequestHeaderDraft, WebSocketFrame } from '../../types';
 
 type InterceptViewProps = {
   entries: ProxyEntry[];
@@ -28,9 +28,10 @@ type InterceptViewProps = {
   onToggleRequest: () => void;
   onToggleResponse: () => void;
   requestView: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart';
-  responseView: 'headers' | 'body' | 'raw' | 'summary';
+  responseView: 'headers' | 'body' | 'raw' | 'summary' | 'messages';
   onRequestViewChange: (view: 'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart') => void;
-  onResponseViewChange: (view: 'headers' | 'body' | 'raw' | 'summary') => void;
+  onResponseViewChange: (view: 'headers' | 'body' | 'raw' | 'summary' | 'messages') => void;
+  isWebSocketSelected: boolean;
   requestLine: string;
   responseLine: string;
   requestUrlDraft: string;
@@ -52,6 +53,7 @@ type InterceptViewProps = {
   responseRawText: string;
   requestSummaryItems: Array<{ label: string; value: string }>;
   responseSummaryItems: Array<{ label: string; value: string }>;
+  webSocketMessages: WebSocketFrame[];
   filterText: string;
   onFilterTextChange: (value: string) => void;
   onExportAllHar: () => void;
@@ -86,6 +88,7 @@ function InterceptView({
   responseView,
   onRequestViewChange,
   onResponseViewChange,
+  isWebSocketSelected,
   requestLine,
   responseLine,
   requestUrlDraft,
@@ -107,6 +110,7 @@ function InterceptView({
   responseRawText,
   requestSummaryItems,
   responseSummaryItems,
+  webSocketMessages,
   filterText,
   onFilterTextChange,
   onExportAllHar,
@@ -213,6 +217,24 @@ function InterceptView({
     { id: 'raw', label: 'Raw' },
     { id: 'summary', label: 'Summary' },
   ] as const;
+  const responseTabsToRender = isWebSocketSelected
+    ? [
+        { id: 'messages', label: 'Messages' },
+        { id: 'headers', label: 'Header' },
+        { id: 'raw', label: 'Raw' },
+        { id: 'summary', label: 'Summary' },
+      ]
+    : responseTabs;
+  const formatMessageTimestamp = (timestamp: number | null | undefined) => {
+    if (typeof timestamp !== 'number') return '—';
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hour12: false,
+    });
+  };
 
   const chartData = React.useMemo(() => {
     if (!selected) {
@@ -350,8 +372,10 @@ function InterceptView({
                     )}
                     {visibleColumns.method && (
                       <td>
-                        <span className={`pill method method-${(entry.method || 'unknown').toLowerCase()}`}>
-                          {entry.method}
+                        <span
+                          className={`pill method method-${(entry.kind === 'websocket' ? 'ws' : entry.method || 'unknown').toLowerCase()}`}
+                        >
+                          {entry.kind === 'websocket' ? 'WS' : entry.method}
                         </span>
                       </td>
                     )}
@@ -419,6 +443,8 @@ function InterceptView({
                     type="button"
                     aria-label="Repeat request"
                     onClick={onRepeatRequest}
+                    disabled={isWebSocketSelected}
+                    title={isWebSocketSelected ? 'Replay is only available for HTTP requests' : 'Repeat request'}
                   >
                     <i className="fa-solid fa-repeat"></i>
                   </button>
@@ -428,6 +454,7 @@ function InterceptView({
                     aria-label="Edit request"
                     title="Edit request in new window"
                     onClick={onOpenRequestEditor}
+                    disabled={isWebSocketSelected}
                   >
                     <i className="fa-solid fa-pen-to-square"></i>
                   </button>
@@ -458,6 +485,7 @@ function InterceptView({
                             value={requestUrlDraft}
                             onChange={(event) => onRequestUrlChange(event.currentTarget.value)}
                             placeholder="scheme://host/path"
+                            readOnly={isWebSocketSelected}
                           />
                         </div>
                         <div className="plain-field" aria-label="Request headers">
@@ -472,6 +500,7 @@ function InterceptView({
                                   placeholder="Header name"
                                   value={header.name}
                                   onChange={(event) => onRequestHeaderNameChange(index, event.currentTarget.value)}
+                                  readOnly={isWebSocketSelected}
                                 />
                                 <textarea
                                   className="header-input header-value-input"
@@ -481,6 +510,7 @@ function InterceptView({
                                   onChange={(event) =>
                                     onRequestHeaderValueChange(index, event.currentTarget.value, event.currentTarget)
                                   }
+                                  readOnly={isWebSocketSelected}
                                 />
                               </div>
                             ))}
@@ -622,7 +652,7 @@ function InterceptView({
                 {!responseCollapsed && (
                   <div className="detail-body request-body">
                     <div className="view-tabs" role="tablist" aria-label="Response view tabs">
-                      {responseTabs.map((tab) => (
+                      {responseTabsToRender.map((tab) => (
                         <button
                           key={tab.id}
                           type="button"
@@ -635,6 +665,33 @@ function InterceptView({
                         </button>
                       ))}
                     </div>
+                    {responseView === 'messages' && isWebSocketSelected && (
+                      <div className="plain-field" aria-label="WebSocket messages">
+                        <div className="kv-title-row">
+                          <span className="kv-title">MESSAGES</span>
+                          <span className="detail-sub">{`${webSocketMessages.length} frame${webSocketMessages.length === 1 ? '' : 's'}`}</span>
+                        </div>
+                        {webSocketMessages.length === 0 ? (
+                          <div className="empty">No WebSocket messages captured yet.</div>
+                        ) : (
+                          <div className="websocket-messages">
+                            {webSocketMessages.map((message) => (
+                              <div className={`websocket-message ${message.direction}`} key={message.id}>
+                                <div className="websocket-message-meta">
+                                  <span className={`pill websocket-direction ${message.direction}`}>
+                                    {message.direction === 'received' ? 'IN' : 'OUT'}
+                                  </span>
+                                  <span className="websocket-type">{message.isBinary ? 'Binary' : 'Text'}</span>
+                                  <span className="websocket-size">{`${message.size} B`}</span>
+                                  <span className="websocket-time">{formatMessageTimestamp(message.timestamp)}</span>
+                                </div>
+                                <pre className="plain-pre websocket-message-body">{message.content || ' '}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {responseView === 'headers' && (
                       <>
                         <div className="plain-field" aria-label="Response headers">
@@ -674,6 +731,7 @@ function InterceptView({
                               onClick={onSaveResponseBody}
                               title="Save this body as file"
                               aria-label="Save this body as file"
+                              disabled={isWebSocketSelected}
                             >
                               <i className="fa-solid fa-download"></i>
                             </button>

@@ -41,7 +41,7 @@ function App() {
   const [requestView, setRequestView] = useState<'headers' | 'query' | 'body' | 'raw' | 'summary' | 'chart'>(
     'headers'
   );
-  const [responseView, setResponseView] = useState<'headers' | 'body' | 'raw' | 'summary'>('headers');
+  const [responseView, setResponseView] = useState<'headers' | 'body' | 'raw' | 'summary' | 'messages'>('headers');
   const [filterText, setFilterText] = useState('');
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
@@ -125,11 +125,17 @@ function App() {
     if (api?.onProxyEntry) {
       cleanup = api.onProxyEntry((entry) => {
         setEntries((prev) => {
-          const next = [...prev, entry];
-          setSelectedId((current) => current ?? entry.id);
-          setSelectedIds((current) => (current.length ? current : [entry.id]));
-          if (!lastSelectedIdRef.current) {
-            lastSelectedIdRef.current = entry.id;
+          const existingIndex = prev.findIndex((candidate) => candidate.id === entry.id);
+          const next =
+            existingIndex === -1
+              ? [...prev, entry]
+              : prev.map((candidate, index) => (index === existingIndex ? entry : candidate));
+          if (existingIndex === -1) {
+            setSelectedId((current) => current ?? entry.id);
+            setSelectedIds((current) => (current.length ? current : [entry.id]));
+            if (!lastSelectedIdRef.current) {
+              lastSelectedIdRef.current = entry.id;
+            }
           }
           return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
         });
@@ -294,6 +300,8 @@ function App() {
   useEffect(() => {
     setRequestCollapsed(false);
     setResponseCollapsed(false);
+    setRequestView('headers');
+    setResponseView(selected?.kind === 'websocket' ? 'messages' : 'headers');
   }, [selectedId]);
 
   useEffect(() => {
@@ -357,7 +365,7 @@ function App() {
   };
 
   const handleRepeatRequest = async () => {
-    if (!selected) return;
+    if (!selected || selected.kind === 'websocket') return;
     await window.electronAPI?.repeatRequest?.({
       entryId: selected.id,
       url: requestUrlDraft,
@@ -540,12 +548,20 @@ function App() {
     if (!filterText.trim()) return entries;
     const q = filterText.toLowerCase();
     return entries.filter((e) => {
+      const webSocketPayload = (e.webSocketMessages || [])
+        .map((message) => message.content)
+        .join(' ');
       const haystack = [
+        e.kind,
         e.method,
         e.host,
         e.path,
         e.query,
         String(e.status ?? ''),
+        e.webSocketState,
+        String(e.webSocketCloseCode ?? ''),
+        e.webSocketCloseReason,
+        webSocketPayload,
         headersToText(e.requestHeaders),
         headersToText(e.responseHeaders),
       ]
@@ -557,7 +573,7 @@ function App() {
   }, [entries, filterText]);
   const requestLine = useMemo(() => {
     if (!selected) return '';
-    const version = selected.requestHttpVersion || 'HTTP/1.1';
+    const version = selected.kind === 'websocket' ? 'WS' : selected.requestHttpVersion || 'HTTP/1.1';
     return `${version} ${selected.method} ${selected.host}`;
   }, [selected]);
   const requestTarget = useMemo(() => {
@@ -566,6 +582,10 @@ function App() {
   }, [selected]);
   const responseLine = useMemo(() => {
     if (!selected) return '';
+    if (selected.kind === 'websocket') {
+      const state = selected.webSocketState || 'connecting';
+      return `${selected.protocol?.replace(':', '').toUpperCase() || 'WS'} ${state}${selected.status ? ` (${selected.status})` : ''}`;
+    }
     const prefix = selected.responseHttpVersion || 'HTTP/1.1';
     return `${prefix} ${selected.status ?? '—'}`;
   }, [selected]);
@@ -684,6 +704,16 @@ function App() {
   }, [selected, responseDisplayBody]);
   const requestSummaryItems = useMemo(() => {
     if (!selected) return [];
+    if (selected.kind === 'websocket') {
+      return [
+        { label: 'Protocol', value: selected.protocol?.replace(':', '').toUpperCase() || 'WS' },
+        { label: 'Host', value: selected.host },
+        { label: 'Path', value: requestTarget || '/' },
+        { label: 'State', value: selected.webSocketState || 'connecting' },
+        { label: 'Messages', value: String(selected.webSocketMessageCount ?? 0) },
+        { label: 'Headers', value: `${Object.keys(selected.requestHeaders || {}).length} headers` },
+      ];
+    }
     return [
       { label: 'Method', value: selected.method },
       { label: 'Host', value: selected.host },
@@ -698,7 +728,7 @@ function App() {
   }, [selected, requestTarget, requestQueryEntries]);
 
   const handleSaveResponseBody = () => {
-    if (!selected?.responseBody) return;
+    if (!selected?.responseBody || selected.kind === 'websocket') return;
     const api = window.electronAPI;
     if (!api?.saveResponseBody) return;
     const extension = isJsonContent(responseContentType) ? 'json' : isHtmlResponse ? 'html' : 'txt';
@@ -774,6 +804,21 @@ function App() {
   }, [selected]);
   const responseSummaryItems = useMemo(() => {
     if (!selected) return [];
+    if (selected.kind === 'websocket') {
+      return [
+        { label: 'Handshake', value: String(selected.status ?? 'Pending') },
+        { label: 'State', value: selected.webSocketState || 'connecting' },
+        { label: 'Messages', value: String(selected.webSocketMessageCount ?? 0) },
+        {
+          label: 'Close',
+          value:
+            selected.webSocketState === 'closed'
+              ? `${selected.webSocketCloseCode ?? '—'}${selected.webSocketCloseReason ? ` ${selected.webSocketCloseReason}` : ''}`
+              : 'Open',
+        },
+        { label: 'Duration', value: selected.durationMs !== null && typeof selected.durationMs !== 'undefined' ? `${selected.durationMs} ms` : '—' },
+      ];
+    }
     return [
       { label: 'Status', value: String(selected.status ?? '—') },
       { label: 'Duration', value: performanceData ? `${performanceData.durationMs ?? '—'} ms` : '—' },
@@ -782,6 +827,7 @@ function App() {
       { label: 'Cacheable', value: performanceData?.cacheable ?? '—' },
     ];
   }, [selected, performanceData]);
+  const webSocketMessages = useMemo(() => selected?.webSocketMessages ?? [], [selected]);
 
   return (
     <div className="shell">
@@ -813,6 +859,7 @@ function App() {
           responseView={responseView}
           onRequestViewChange={setRequestView}
           onResponseViewChange={setResponseView}
+          isWebSocketSelected={selected?.kind === 'websocket'}
           requestLine={requestLine}
           responseLine={responseLine}
           requestUrlDraft={requestUrlDraft}
@@ -834,6 +881,7 @@ function App() {
           responseRawText={responseRawText}
           requestSummaryItems={requestSummaryItems}
           responseSummaryItems={responseSummaryItems}
+          webSocketMessages={webSocketMessages}
           filterText={filterText}
           onFilterTextChange={setFilterText}
           onExportAllHar={handleExportAllHar}
@@ -841,7 +889,7 @@ function App() {
           onClearTraffic={handleClearTraffic}
           onRepeatRequest={handleRepeatRequest}
           onOpenRequestEditor={() => {
-            if (!selected) return;
+            if (!selected || selected.kind === 'websocket') return;
             window.electronAPI?.openRequestEditor?.(selected.id);
           }}
         />

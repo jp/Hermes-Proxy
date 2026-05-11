@@ -14,7 +14,7 @@ const buildHarLog = (entries: ReturnType<typeof buildHarEntry>[]) => ({
 
 export const exportEntryAsHar = async (entryId: string) => {
   const entry = getEntryById(entryId);
-  if (!entry) return;
+  if (!entry || entry.kind === 'websocket') return;
 
   const har = buildHarLog([buildHarEntry(entry)]);
 
@@ -28,7 +28,7 @@ export const exportEntryAsHar = async (entryId: string) => {
 };
 
 export const exportAllEntriesAsHar = async () => {
-  const entries = getEntries();
+  const entries = getEntries().filter((entry) => entry.kind !== 'websocket');
   if (!entries.length) return false;
   const har = buildHarLog(entries.slice().reverse().map((entry) => buildHarEntry(entry)));
   const savePath = await dialog.showSaveDialog({
@@ -45,7 +45,7 @@ export const exportSelectedEntriesAsHar = async (entryIds: string[]) => {
   const uniqueIds = Array.from(new Set(entryIds));
   if (!uniqueIds.length) return false;
   const idSet = new Set(uniqueIds);
-  const entries = getEntries().filter((entry) => idSet.has(entry.id));
+  const entries = getEntries().filter((entry) => idSet.has(entry.id) && entry.kind !== 'websocket');
   if (!entries.length) return false;
   const har = buildHarLog(entries.slice().reverse().map((entry) => buildHarEntry(entry)));
   const savePath = await dialog.showSaveDialog({

@@ -8,6 +8,7 @@ import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
 import { getLocalNetworkIp } from './network';
 import { buildRuleShortCircuitResponse, matchRule } from './rules';
+import type { ProxyEntry, WebSocketFrame } from './types';
 import {
   getProxyInstance,
   getProxySettings,
@@ -55,6 +56,12 @@ const toEventEpochMs = (timingEvents: any, key: string) => {
   const eventValue = timingEvents?.[key];
   if (typeof eventValue !== 'number') return null;
 
+  return toMonotonicEpochMs(timingEvents, eventValue);
+};
+
+const toMonotonicEpochMs = (timingEvents: any, eventValue: unknown) => {
+  if (typeof eventValue !== 'number') return null;
+
   const startTime = toEpochMs(timingEvents?.startTime);
   const startTimestamp = typeof timingEvents?.startTimestamp === 'number' ? timingEvents.startTimestamp : null;
 
@@ -86,6 +93,124 @@ const toAbsoluteRequestUrl = (request: any, headers: Record<string, unknown>) =>
   }
 
   return rawUrl;
+};
+
+const toWebSocketTargetUrl = (request: any, headers: Record<string, unknown>) => {
+  const absoluteUrl = toAbsoluteRequestUrl(request, headers);
+  if (!absoluteUrl) return null;
+
+  try {
+    const target = new URL(absoluteUrl);
+    if (target.protocol === 'https:') {
+      target.protocol = 'wss:';
+    } else if (target.protocol === 'http:') {
+      target.protocol = 'ws:';
+    }
+    return target;
+  } catch (err) {
+    return null;
+  }
+};
+
+const buildWebSocketFrame = (message: any): WebSocketFrame => {
+  const contentBuffer = Buffer.from(message?.content ?? []);
+  const isBinary = Boolean(message?.isBinary);
+
+  return {
+    id: `${String(message?.streamId ?? 'ws')}-${String(message?.direction ?? 'sent')}-${Math.round(message?.eventTimestamp ?? Date.now())}-${Math.random().toString(16).slice(2)}`,
+    direction: message?.direction === 'received' ? 'received' : 'sent',
+    content: isBinary ? contentBuffer.toString('base64') : contentBuffer.toString('utf8'),
+    encoding: isBinary ? 'base64' : 'utf8',
+    isBinary,
+    size: contentBuffer.length,
+    timestamp: toMonotonicEpochMs(message?.timingEvents, message?.eventTimestamp),
+  };
+};
+
+const computeDurationMs = (startAt: number | null | undefined, endAt: number | null | undefined) => {
+  if (typeof startAt !== 'number' || typeof endAt !== 'number') return null;
+  return Math.max(0, endAt - startAt);
+};
+
+const getWebSocketTargetFromEntry = (entry: ProxyEntry) => {
+  if (entry.url) {
+    try {
+      return new URL(entry.url);
+    } catch (err) {
+      // Fall through to reconstruct from structured fields below.
+    }
+  }
+
+  return new URL(`${entry.protocol || 'ws:'}//${entry.host}${entry.path}${entry.query || ''}`);
+};
+
+const createWebSocketEntry = ({
+  entryId,
+  target,
+  request,
+  status,
+  responseHeaders,
+  responseHttpVersion,
+  requestStartAt,
+  requestEndAt,
+  responseStartAt,
+  responseEndAt,
+  state,
+  messages,
+  closeCode,
+  closeReason,
+}: {
+  entryId: string;
+  target: URL;
+  request: {
+    method?: string;
+    headers?: ProxyEntry['requestHeaders'];
+    httpVersion?: string;
+  };
+  status?: number | null;
+  responseHeaders?: ProxyEntry['responseHeaders'];
+  responseHttpVersion?: string | null;
+  requestStartAt?: number | null;
+  requestEndAt?: number | null;
+  responseStartAt?: number | null;
+  responseEndAt?: number | null;
+  state: 'connecting' | 'open' | 'closed';
+  messages?: WebSocketFrame[];
+  closeCode?: number | null;
+  closeReason?: string | null;
+}): ProxyEntry => {
+  const lastMessageAt = messages?.length ? messages[messages.length - 1]?.timestamp ?? null : null;
+  const latestAt = responseEndAt ?? lastMessageAt ?? responseStartAt ?? requestEndAt ?? requestStartAt ?? null;
+  const durationMs = computeDurationMs(requestStartAt, latestAt);
+  const receiveEndAt = responseEndAt ?? lastMessageAt ?? responseStartAt ?? null;
+  const base = buildEntry({
+    target,
+    request,
+    status,
+    responseHeaders,
+    requestBody: Buffer.alloc(0),
+    responseBody: Buffer.alloc(0),
+    responseHttpVersion,
+    durationMs,
+    requestStartAt,
+    requestEndAt,
+    responseStartAt,
+    responseEndAt: receiveEndAt,
+  });
+
+  return {
+    ...base,
+    id: entryId,
+    kind: 'websocket',
+    webSocketState: state,
+    webSocketStreamId: entryId,
+    webSocketMessages: messages ?? [],
+    webSocketMessageCount: messages?.length ?? 0,
+    webSocketCloseCode: closeCode ?? null,
+    webSocketCloseReason: closeReason ?? null,
+    responseEndAt: receiveEndAt,
+    timingReceiveMs: computeDurationMs(responseStartAt, receiveEndAt),
+  };
 };
 
 const applyGlobalMockttpBodyLimit = (limitBytes: number) => {
@@ -120,7 +245,7 @@ export const startMitmProxy = async () => {
   const maxCaptureBodySizeBytes = maxCaptureBodySizeMb * 1024 * 1024;
   applyGlobalMockttpBodyLimit(maxCaptureBodySizeBytes);
   const proxy: any = getLocal({
-    http2: true,
+    http2: 'fallback',
     https: {
       certPath,
       keyPath,
@@ -139,8 +264,9 @@ export const startMitmProxy = async () => {
       requestEndAt: number | null;
     }
   >();
+  const webSocketEntries = new Map<string, ProxyEntry>();
 
-  proxy.forAnyRequest().thenPassThrough({
+  await proxy.forAnyRequest().thenPassThrough({
     beforeRequest: async (req: any) => {
       const requestHeaders = normalizeHeaders(req.headers);
       const requestUrl = toAbsoluteRequestUrl(req, requestHeaders);
@@ -171,8 +297,9 @@ export const startMitmProxy = async () => {
       return undefined;
     },
   });
+  await proxy.forAnyWebSocket().thenPassThrough();
 
-  proxy.on('request', async (req: any) => {
+  await proxy.on('request', async (req: any) => {
     const requestBody = req.body?.buffer ?? Buffer.alloc(0);
     const timingEvents = req.timingEvents || {};
     const requestStartAt =
@@ -191,7 +318,137 @@ export const startMitmProxy = async () => {
     });
   });
 
-  proxy.on('response', async (res: any) => {
+  await proxy.on('websocket-request', async (req: any) => {
+    const requestHeaders = normalizeHeaders(req.headers);
+    const target = toWebSocketTargetUrl(req, requestHeaders);
+    if (!target) return;
+
+    const timingEvents = req.timingEvents || {};
+    const requestStartAt =
+      toEventEpochMs(timingEvents, 'startTimestamp') ??
+      toEpochMs(timingEvents.startTime) ??
+      Date.now();
+    const requestEndAt =
+      toEventEpochMs(timingEvents, 'bodyReceivedTimestamp') ??
+      requestStartAt;
+    const entryId = String(req.id ?? req.requestId ?? `${Date.now()}-${Math.random()}`);
+    const entry = createWebSocketEntry({
+      entryId,
+      target,
+      request: {
+        method: req.method || 'GET',
+        headers: requestHeaders,
+        httpVersion: req.httpVersion,
+      },
+      status: null,
+      responseHeaders: {},
+      responseHttpVersion: null,
+      requestStartAt,
+      requestEndAt,
+      responseStartAt: null,
+      responseEndAt: null,
+      state: 'connecting',
+      messages: [],
+      closeCode: null,
+      closeReason: null,
+    });
+
+    webSocketEntries.set(entryId, entry);
+    broadcastEntry(entry);
+  });
+
+  await proxy.on('websocket-accepted', async (res: any) => {
+    const entryId = String(res.id ?? res.requestId ?? '');
+    const currentEntry = entryId ? webSocketEntries.get(entryId) : null;
+    if (!currentEntry) return;
+
+    const responseHeaders = normalizeHeaders(res.headers);
+    const timingEvents = res.timingEvents || {};
+    const responseStartAt =
+      toEventEpochMs(timingEvents, 'wsAcceptedTimestamp') ??
+      toEventEpochMs(timingEvents, 'headersSentTimestamp') ??
+      currentEntry.requestEndAt ??
+      currentEntry.requestStartAt ??
+      Date.now();
+    const nextEntry = createWebSocketEntry({
+      entryId,
+      target: getWebSocketTargetFromEntry(currentEntry),
+      request: {
+        method: currentEntry.method || 'GET',
+        headers: currentEntry.requestHeaders,
+        httpVersion: currentEntry.requestHttpVersion,
+      },
+      status: typeof res.statusCode === 'number' ? res.statusCode : 101,
+      responseHeaders,
+      responseHttpVersion: currentEntry.responseHttpVersion ?? null,
+      requestStartAt: currentEntry.requestStartAt,
+      requestEndAt: currentEntry.requestEndAt,
+      responseStartAt,
+      responseEndAt: currentEntry.responseEndAt ?? null,
+      state: currentEntry.webSocketState === 'closed' ? 'closed' : 'open',
+      messages: currentEntry.webSocketMessages ?? [],
+      closeCode: currentEntry.webSocketCloseCode ?? null,
+      closeReason: currentEntry.webSocketCloseReason ?? null,
+    });
+
+    webSocketEntries.set(entryId, nextEntry);
+    broadcastEntry(nextEntry);
+  });
+
+  const updateWebSocketMessages = (message: any) => {
+    const streamId = String(message?.streamId ?? '');
+    const currentEntry = streamId ? webSocketEntries.get(streamId) : null;
+    if (!currentEntry) return;
+
+    const frame = buildWebSocketFrame(message);
+    const nextMessages = [...(currentEntry.webSocketMessages ?? []), frame];
+    const nextEntry: ProxyEntry = {
+      ...currentEntry,
+      webSocketMessages: nextMessages,
+      webSocketMessageCount: nextMessages.length,
+      responseEndAt: frame.timestamp ?? currentEntry.responseEndAt ?? null,
+      durationMs: computeDurationMs(currentEntry.requestStartAt, frame.timestamp ?? currentEntry.responseEndAt),
+      timingReceiveMs: computeDurationMs(currentEntry.responseStartAt, frame.timestamp ?? currentEntry.responseEndAt),
+    };
+
+    webSocketEntries.set(streamId, nextEntry);
+    broadcastEntry(nextEntry);
+  };
+
+  await proxy.on('websocket-message-received', async (message: any) => {
+    updateWebSocketMessages(message);
+  });
+
+  await proxy.on('websocket-message-sent', async (message: any) => {
+    updateWebSocketMessages(message);
+  });
+
+  await proxy.on('websocket-close', async (close: any) => {
+    const streamId = String(close?.streamId ?? '');
+    const currentEntry = streamId ? webSocketEntries.get(streamId) : null;
+    if (!currentEntry) return;
+
+    const closedAt =
+      toEventEpochMs(close?.timingEvents, 'wsClosedTimestamp') ??
+      currentEntry.responseEndAt ??
+      Date.now();
+    const nextEntry: ProxyEntry = {
+      ...currentEntry,
+      webSocketState: 'closed',
+      webSocketCloseCode:
+        typeof close?.closeCode === 'number' ? close.closeCode : currentEntry.webSocketCloseCode ?? null,
+      webSocketCloseReason:
+        typeof close?.closeReason === 'string' ? close.closeReason : currentEntry.webSocketCloseReason ?? null,
+      responseEndAt: closedAt,
+      durationMs: computeDurationMs(currentEntry.requestStartAt, closedAt),
+      timingReceiveMs: computeDurationMs(currentEntry.responseStartAt, closedAt),
+    };
+
+    webSocketEntries.set(streamId, nextEntry);
+    broadcastEntry(nextEntry);
+  });
+
+  await proxy.on('response', async (res: any) => {
     const requestId = String(res.id ?? res.requestId ?? '');
     const pending = pendingRequests.get(requestId);
     if (requestId) {

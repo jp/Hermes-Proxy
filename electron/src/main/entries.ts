@@ -44,6 +44,7 @@ export const buildEntryFromHar = (harEntry: any): ProxyEntry => {
 
   return {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    kind: 'http',
     timestamp: harEntry.startedDateTime || new Date().toISOString(),
     url: request.url || buildEntryUrl({
       protocol: url.protocol,
@@ -125,6 +126,7 @@ export const buildEntry = ({
   responseEndAt,
 }: BuildEntryInput): ProxyEntry => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  kind: 'http',
   timestamp: new Date(requestStartAt ?? Date.now()).toISOString(),
   url: buildEntryUrl({
     protocol: target.protocol || 'http:',

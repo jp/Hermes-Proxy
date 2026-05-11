@@ -2,6 +2,16 @@ export type HeaderValue = string | string[] | number | boolean | null | undefine
 
 export type HeaderMap = Record<string, HeaderValue>;
 
+export interface WebSocketFrame {
+  id: string;
+  direction: 'sent' | 'received';
+  content: string;
+  encoding: 'utf8' | 'base64';
+  isBinary: boolean;
+  size: number;
+  timestamp: number | null;
+}
+
 export interface RuleHeaderMatcher {
   name: string;
   value: string;
@@ -40,6 +50,7 @@ export interface Rule {
 
 export interface ProxyEntry {
   id: string;
+  kind?: 'http' | 'websocket';
   timestamp?: string;
   url?: string;
   referrer?: string | null;
@@ -73,6 +84,12 @@ export interface ProxyEntry {
   timingSendMs?: number | null;
   timingWaitMs?: number | null;
   timingReceiveMs?: number | null;
+  webSocketState?: 'connecting' | 'open' | 'closed';
+  webSocketStreamId?: string;
+  webSocketMessages?: WebSocketFrame[];
+  webSocketMessageCount?: number;
+  webSocketCloseCode?: number | null;
+  webSocketCloseReason?: string | null;
 }
 
 export interface RuleRequestInfo {

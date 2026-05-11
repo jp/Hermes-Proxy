@@ -23,6 +23,7 @@ export const showTrafficContextMenu = (
 
   const entryId = uniqueIds[0];
   const entry = entryId ? getEntryById(entryId) : null;
+  const isHttpEntry = Boolean(entry) && entry?.kind !== 'websocket';
   const menu = Menu.buildFromTemplate([
     {
       label: 'Add matching rule',
@@ -52,6 +53,7 @@ export const showTrafficContextMenu = (
         },
         {
           label: 'Copy as cURL',
+          enabled: isHttpEntry,
           click: () => {
             if (!entry) return;
             clipboard.writeText(buildCurlCommand(entry));
@@ -59,6 +61,7 @@ export const showTrafficContextMenu = (
         },
         {
           label: 'Copy as PowerShell',
+          enabled: isHttpEntry,
           click: () => {
             if (!entry) return;
             clipboard.writeText(buildPowerShellCommand(entry));
@@ -66,6 +69,7 @@ export const showTrafficContextMenu = (
         },
         {
           label: 'Copy as fetch',
+          enabled: isHttpEntry,
           click: () => {
             if (!entry) return;
             clipboard.writeText(buildFetchCommand(entry));
@@ -74,6 +78,7 @@ export const showTrafficContextMenu = (
         { type: 'separator' },
         {
           label: 'Copy response',
+          enabled: isHttpEntry,
           click: () => {
             if (!entry) return;
             clipboard.writeText(entry.responseBody || '');
@@ -84,7 +89,7 @@ export const showTrafficContextMenu = (
     {
       label: 'Export Exchange as HAR',
       click: () => exportEntryAsHar(entryId),
-      enabled: Boolean(entry),
+      enabled: isHttpEntry,
     },
   ]);
   menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });

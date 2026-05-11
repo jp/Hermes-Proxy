@@ -116,7 +116,7 @@ export const registerIpcHandlers = () => {
   ipcMain.handle('proxy:repeat-request', async (_event, payload) => {
     const entryId = typeof payload === 'string' ? payload : payload?.entryId;
     const entry = entryId ? getEntryById(entryId) : null;
-    if (!entry) return false;
+    if (!entry || entry.kind === 'websocket') return false;
     try {
       await repeatEntryRequest(entry, typeof payload === 'object' ? payload : {});
       return true;
@@ -127,7 +127,7 @@ export const registerIpcHandlers = () => {
   });
   ipcMain.handle('proxy:open-request-editor', (_event, entryId) => {
     const entry = getEntryById(entryId);
-    if (!entry) return false;
+    if (!entry || entry.kind === 'websocket') return false;
     createRequestEditorWindow(entryId);
     return true;
   });

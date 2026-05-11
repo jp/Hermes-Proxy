@@ -29,7 +29,19 @@ export const addEntry = (entry: ProxyEntry) => {
   };
   const referrer = normalizeUrl(entry.referrer);
   const parentId = referrer ? entryIdByUrl.get(referrer) || null : null;
-  entry.parentId = parentId;
+  const existingIndex = entries.findIndex((existingEntry) => existingEntry.id === entry.id);
+  if (existingIndex >= 0) {
+    const existingEntry = entries[existingIndex];
+    entry.parentId = entry.parentId ?? existingEntry.parentId ?? parentId;
+    const url = normalizeUrl(entry.url);
+    if (url) {
+      entryIdByUrl.set(url, entry.id);
+    }
+    entries[existingIndex] = entry;
+    return;
+  }
+
+  entry.parentId = entry.parentId ?? parentId;
   const url = normalizeUrl(entry.url);
   if (url) {
     entryIdByUrl.set(url, entry.id);
