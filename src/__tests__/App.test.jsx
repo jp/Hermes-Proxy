@@ -275,6 +275,59 @@ describe('App traffic actions', () => {
     );
   });
 
+  it('keeps selected request and response detail views when selecting another row', async () => {
+    const entries = [
+      {
+        id: 'entry-1',
+        method: 'GET',
+        status: 200,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/alpha',
+        query: '?first=1',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+      },
+      {
+        id: 'entry-2',
+        method: 'POST',
+        status: 201,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/beta',
+        query: '?second=2',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+      },
+    ];
+    window.electronAPI = buildElectronApi({
+      getHistory: () => Promise.resolve(entries),
+    });
+
+    render(<App />);
+    const user = userEvent.setup();
+
+    await screen.findByText('/alpha');
+    const requestQueryTab = screen.getByRole('tab', { name: 'Query' });
+    const responseSummaryTab = screen.getAllByRole('tab', { name: 'Summary' })[1];
+
+    await user.click(requestQueryTab);
+    await user.click(responseSummaryTab);
+    await user.click(screen.getByText('/beta'));
+
+    expect(requestQueryTab).toHaveClass('active');
+    expect(responseSummaryTab).toHaveClass('active');
+    expect(screen.getByText('second')).toBeInTheDocument();
+  });
+
   it('clears traffic from the menu button', async () => {
     const clearTraffic = vi.fn();
     window.electronAPI = buildElectronApi({ clearTraffic });

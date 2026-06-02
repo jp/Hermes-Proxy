@@ -297,12 +297,18 @@ function App() {
     };
   }, []);
 
+  const selected = useMemo(() => entries.find((e) => e.id === selectedId) ?? null, [entries, selectedId]);
+
   useEffect(() => {
     setRequestCollapsed(false);
     setResponseCollapsed(false);
-    setRequestView('headers');
-    setResponseView(selected?.kind === 'websocket' ? 'messages' : 'headers');
-  }, [selectedId]);
+    setResponseView((current) => {
+      if (selected?.kind === 'websocket') {
+        return current === 'body' ? 'messages' : current;
+      }
+      return current === 'messages' ? 'headers' : current;
+    });
+  }, [selectedId, selected?.kind]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -520,8 +526,6 @@ function App() {
     setRequestHeadersDraft(next);
     resizeTextarea(element);
   };
-
-  const selected = useMemo(() => entries.find((e) => e.id === selectedId) ?? null, [entries, selectedId]);
 
   useEffect(() => {
     document
