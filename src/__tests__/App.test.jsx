@@ -328,6 +328,57 @@ describe('App traffic actions', () => {
     expect(screen.getByText('second')).toBeInTheDocument();
   });
 
+  it('navigates traffic rows with up and down arrow keys', async () => {
+    const entries = [
+      {
+        id: 'entry-2',
+        method: 'POST',
+        status: 201,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/beta',
+        query: '?second=2',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+      },
+      {
+        id: 'entry-1',
+        method: 'GET',
+        status: 200,
+        protocol: 'http:',
+        host: 'api.local',
+        path: '/alpha',
+        query: '?first=1',
+        requestHeaders: {},
+        responseHeaders: {},
+        requestBody: '',
+        responseBody: '',
+        requestHttpVersion: 'HTTP/1.1',
+        responseHttpVersion: 'HTTP/1.1',
+      },
+    ];
+    window.electronAPI = buildElectronApi({
+      getHistory: () => Promise.resolve(entries),
+    });
+
+    render(<App />);
+    const user = userEvent.setup();
+
+    await screen.findByText('/alpha');
+    await user.click(screen.getByText('/alpha'));
+    await user.keyboard('{ArrowDown}');
+
+    expect(screen.getByDisplayValue('http://api.local/beta?second=2')).toBeInTheDocument();
+
+    await user.keyboard('{ArrowUp}');
+
+    expect(screen.getByDisplayValue('http://api.local/alpha?first=1')).toBeInTheDocument();
+  });
+
   it('clears traffic from the menu button', async () => {
     const clearTraffic = vi.fn();
     window.electronAPI = buildElectronApi({ clearTraffic });

@@ -203,6 +203,34 @@ function InterceptView({
     });
   };
 
+  const scrollRowIntoView = (entryId: string) => {
+    window.requestAnimationFrame(() => {
+      const row = Array.from(tableRef.current?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-entry-id]') || []).find(
+        (candidate) => candidate.dataset.entryId === entryId,
+      );
+      row?.scrollIntoView?.({ block: 'nearest' });
+    });
+  };
+
+  const handleTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    if (filteredEntries.length === 0) return;
+
+    event.preventDefault();
+    const orderedIds = filteredEntries.map((entry) => entry.id);
+    const currentIndex = selected ? orderedIds.indexOf(selected.id) : -1;
+    const fallbackIndex = event.key === 'ArrowUp' ? filteredEntries.length - 1 : 0;
+    const nextIndex =
+      currentIndex === -1
+        ? fallbackIndex
+        : Math.min(filteredEntries.length - 1, Math.max(0, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)));
+    const nextId = orderedIds[nextIndex];
+    if (!nextId) return;
+
+    onSelectEntry(nextId, { ctrl: false, shift: false, meta: false }, orderedIds);
+    scrollRowIntoView(nextId);
+  };
+
   const requestTabs = [
     { id: 'headers', label: 'Header' },
     { id: 'query', label: 'Query' },
@@ -311,7 +339,15 @@ function InterceptView({
             <h1>Traffic</h1>
             <span className="status-pill">{`Listening on ${proxyHost}:${proxyPort}`}</span>
           </div>
-          <div className="table-wrapper" ref={tableRef} onScroll={onTableScroll}>
+          <div
+            className="table-wrapper"
+            ref={tableRef}
+            onScroll={onTableScroll}
+            onKeyDown={handleTableKeyDown}
+            onMouseDown={(event) => event.currentTarget.focus()}
+            tabIndex={0}
+            aria-label="Traffic list"
+          >
             <table>
               <thead>
                 <tr onContextMenu={handleHeaderContextMenu}>
