@@ -229,9 +229,9 @@ describe('App traffic actions', () => {
     await screen.findByText('/alpha');
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText(/filter by method/i), 'beta');
+    await user.type(screen.getByLabelText('Filter traffic'), 'beta');
 
-    expect(screen.queryByText('/alpha')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('/alpha')).not.toBeInTheDocument());
     expect(screen.getByText('/beta')).toBeInTheDocument();
   });
 

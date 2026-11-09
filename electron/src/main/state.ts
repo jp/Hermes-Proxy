@@ -50,6 +50,26 @@ export const addEntry = (entry: ProxyEntry) => {
   if (entries.length > HISTORY_LIMIT) entries.pop();
 };
 
+export const hasEntry = (entryId: string) => entries.some((entry) => entry.id === entryId);
+
+export const removeEntries = (entryIds: string[]) => {
+  const ids = new Set(entryIds);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (ids.has(entries[index].id)) entries.splice(index, 1);
+  }
+  for (const [url, id] of entryIdByUrl) {
+    if (ids.has(id)) entryIdByUrl.delete(url);
+  }
+};
+
+let capturePaused = false;
+
+export const isCapturePaused = () => capturePaused;
+
+export const setCapturePaused = (paused: boolean) => {
+  capturePaused = paused;
+};
+
 export const clearEntries = () => {
   entries.splice(0, entries.length);
   entryIdByUrl.clear();

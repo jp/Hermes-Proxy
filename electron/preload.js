@@ -55,5 +55,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveResponseBody: (payload) => ipcRenderer.invoke('proxy:save-response-body', payload),
   exportCaCertificate: () => ipcRenderer.invoke('proxy:export-ca-certificate'),
   openCaFolder: () => ipcRenderer.invoke('proxy:open-ca-folder'),
+  getBrowsers: (refresh) => ipcRenderer.invoke('proxy:get-browsers', refresh),
+  launchBrowser: (browserId) => ipcRenderer.invoke('proxy:launch-browser', browserId),
+  showBrowserMenu: () => ipcRenderer.invoke('proxy:browser-menu'),
+  deleteEntries: (entryIds) => ipcRenderer.invoke('proxy:delete-entries', entryIds),
+  getCapturePaused: () => ipcRenderer.invoke('proxy:get-capture-paused'),
+  setCapturePaused: (paused) => ipcRenderer.invoke('proxy:set-capture-paused', paused),
+  onEntriesRemoved: (callback) => {
+    const listener = (_event, entryIds) => callback(entryIds);
+    ipcRenderer.on('proxy-entries-removed', listener);
+    return () => ipcRenderer.removeListener('proxy-entries-removed', listener);
+  },
+  onCapturePaused: (callback) => {
+    const listener = (_event, paused) => callback(paused);
+    ipcRenderer.on('proxy-capture-paused', listener);
+    return () => ipcRenderer.removeListener('proxy-capture-paused', listener);
+  },
   showTrafficContextMenu: (entryIds) => ipcRenderer.invoke('proxy:traffic-context-menu', entryIds),
 });

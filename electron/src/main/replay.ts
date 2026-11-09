@@ -80,7 +80,8 @@ export const repeatEntryRequest = (entry: ProxyEntry, overrides: RepeatRequestOv
             requestEndAt: requestEndAt ?? startedAt,
             responseStartAt: responseStartAt ?? responseEndAt,
             responseEndAt,
-          })
+          }),
+          { force: true },
         );
         resolve(true);
       });
@@ -109,7 +110,8 @@ export const repeatEntryRequest = (entry: ProxyEntry, overrides: RepeatRequestOv
           requestEndAt: requestEndAt ?? startedAt,
           responseStartAt: responseStartAt ?? responseEndAt,
           responseEndAt,
-        })
+        }),
+        { force: true },
       );
       reject(err);
     });

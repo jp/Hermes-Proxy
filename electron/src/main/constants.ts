@@ -1,4 +1,6 @@
-export const HISTORY_LIMIT = 500;
+// Keep in sync with MAX_ENTRIES in src/App.tsx so every row in the UI can still be replayed/exported.
+export const HISTORY_LIMIT = 5000;
+export const BINARY_PREVIEW_BYTES = 64 * 1024;
 export const PROXY_PORT_START = 8000;
 export const RULE_TIMEOUT_MS = 30000;
 export const RULES_FILENAME = 'rules.json';

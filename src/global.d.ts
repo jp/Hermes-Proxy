@@ -1,4 +1,11 @@
-import type { CaCertificateDetails, ProxyEntry, ProxySettings, RequestHeaderDraft, Rule } from './types';
+import type {
+  CaCertificateDetails,
+  InstalledBrowser,
+  ProxyEntry,
+  ProxySettings,
+  RequestHeaderDraft,
+  Rule,
+} from './types';
 
 type AddRulePayload = {
   method?: string;
@@ -46,6 +53,14 @@ interface ElectronApi {
   openRequestEditor?: (entryId: string) => Promise<boolean> | boolean;
   saveRules?: () => Promise<void>;
   loadRules?: () => Promise<void>;
+  getBrowsers?: (refresh?: boolean) => Promise<InstalledBrowser[]>;
+  launchBrowser?: (browserId: string) => Promise<{ ok: boolean; error?: string }>;
+  showBrowserMenu?: () => void;
+  deleteEntries?: (entryIds: string[]) => Promise<boolean>;
+  getCapturePaused?: () => Promise<boolean>;
+  setCapturePaused?: (paused: boolean) => Promise<boolean>;
+  onEntriesRemoved?: (cb: (entryIds: string[]) => void) => () => void;
+  onCapturePaused?: (cb: (paused: boolean) => void) => () => void;
   showTrafficContextMenu?: (entryIds: string[] | string) => void;
   exportCaCertificate?: () => void;
   saveResponseBody?: (payload: SaveBodyPayload) => void;

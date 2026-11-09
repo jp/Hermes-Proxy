@@ -1,5 +1,6 @@
 import React from 'react';
 import type { CaCertificateDetails } from '../../types';
+import BrowserLauncher from './BrowserLauncher';
 
 type SetupViewProps = {
   proxyPort: number;
@@ -56,6 +57,10 @@ function SetupView({
           <span className="status-pill">HTTPS intercept</span>
         </div>
         <div className="setup-text">
+          <BrowserLauncher />
+          <p>
+            <strong>Or configure any client manually</strong>
+          </p>
           <p>
             <strong>1. Send traffic via Hermes Proxy</strong>
             <br />

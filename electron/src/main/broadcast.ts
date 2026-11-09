@@ -1,8 +1,14 @@
 import { BrowserWindow } from 'electron';
 import type { ProxyEntry, Rule } from './types';
-import { addEntry, getCaCertPath, getProxyHost, getProxyPort } from './state';
+import { addEntry, getCaCertPath, getProxyHost, getProxyPort, hasEntry, isCapturePaused, removeEntries } from './state';
 
-export const broadcastEntry = (entry: ProxyEntry) => {
+/**
+ * Records an entry and sends it to every window. While capture is paused, new
+ * entries are dropped but updates to already-recorded ones still go through.
+ * `force` is for user-initiated entries (replays, HAR imports).
+ */
+export const broadcastEntry = (entry: ProxyEntry, options: { force?: boolean } = {}) => {
+  if (!options.force && isCapturePaused() && !hasEntry(entry.id)) return;
   addEntry(entry);
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('proxy-entry', entry);
@@ -44,4 +50,26 @@ export const broadcastClearTraffic = () => {
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('proxy-clear-traffic');
   });
+};
+
+export const broadcastEntriesRemoved = (entryIds: string[]) => {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('proxy-entries-removed', entryIds);
+  });
+};
+
+export const broadcastCapturePaused = (paused: boolean) => {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('proxy-capture-paused', paused);
+  });
+};
+
+export const deleteEntries = (entryIds: unknown) => {
+  const ids = (Array.isArray(entryIds) ? entryIds : [entryIds]).filter(
+    (id): id is string => typeof id === 'string' && id.length > 0,
+  );
+  if (ids.length === 0) return false;
+  removeEntries(ids);
+  broadcastEntriesRemoved(ids);
+  return true;
 };

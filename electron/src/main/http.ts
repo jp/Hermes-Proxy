@@ -1,5 +1,29 @@
 import zlib from 'zlib';
 import type { HeaderMap, HeaderValue } from './types';
+import { BINARY_PREVIEW_BYTES } from './constants';
+
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+export const isBinaryBuffer = (buffer: Buffer | null | undefined) => {
+  if (!buffer || buffer.length === 0) return false;
+  const sample = buffer.subarray(0, 4096);
+  let controlChars = 0;
+  for (const byte of sample) {
+    if (byte === 0) return true;
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13 && byte !== 12) controlChars += 1;
+  }
+  if (controlChars / sample.length > 0.1) return true;
+  try {
+    utf8Decoder.decode(buffer);
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+/** Base64 of the first bytes of a binary body, or null for text bodies. */
+export const binaryPreview = (buffer: Buffer | null | undefined) =>
+  buffer && isBinaryBuffer(buffer) ? buffer.subarray(0, BINARY_PREVIEW_BYTES).toString('base64') : null;
 
 export const bodyToText = (buffer: Buffer | null | undefined) => {
   if (!buffer || buffer.length === 0) return '';

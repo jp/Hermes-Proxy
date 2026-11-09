@@ -67,6 +67,8 @@ export interface ProxyEntry {
   responseBody?: string;
   requestDecodedBody?: string | null;
   responseDecodedBody?: string | null;
+  requestBodyBinaryPreview?: string | null;
+  responseBodyBinaryPreview?: string | null;
   requestBodySize?: number;
   responseBodySize?: number;
   requestDecodedSize?: number | null;

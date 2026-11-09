@@ -509,7 +509,10 @@ table {
 thead {
   position: sticky;
   top: 0;
-  background: rgba(15, 23, 42, 0.9);
+  z-index: 2;
+  /* Opaque so rows never show through while scrolling. */
+  background: #111a2e;
+  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.18);
 }
 
 th,
@@ -1332,4 +1335,314 @@ tbody tr.selected {
   .table-wrapper {
     max-height: none;
   }
+}
+
+/* ---- Traffic table ---- */
+
+.traffic-table {
+  table-layout: fixed;
+}
+
+.traffic-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.traffic-table th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.traffic-table th.sortable {
+  cursor: pointer;
+}
+
+.traffic-table th.sortable:hover,
+.traffic-table th.sorted {
+  color: #f8fafc;
+}
+
+.sort-indicator {
+  margin-left: 0.35rem;
+  color: #38bdf8;
+}
+
+/* Path has no width, so it takes whatever space is left. */
+.col-w-time { width: 7.5rem; }
+.col-w-method { width: 6.6rem; }
+.col-w-status { width: 4.4rem; }
+.col-w-host { width: 22%; }
+.col-w-query { width: 12%; }
+.col-w-type { width: 5.2rem; }
+.col-w-size { width: 5.4rem; }
+.col-w-duration { width: 5.4rem; }
+
+.traffic-table .col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+}
+
+.traffic-table .col-muted {
+  color: #94a3b8;
+}
+
+.traffic-table tr.spacer-row,
+.traffic-table tr.spacer-row td {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-pill.paused {
+  background: linear-gradient(120deg, #f59e0b, #facc15);
+  color: #422006;
+  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.3);
+}
+
+.icon-btn.active {
+  border-color: rgba(250, 204, 21, 0.6);
+  color: #facc15;
+}
+
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 1.6rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  background: rgba(15, 23, 42, 0.95);
+  color: #e0f2fe;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.jump-latest:hover {
+  background: rgba(30, 41, 59, 0.98);
+}
+
+/* ---- Bottom filter bar ---- */
+
+.filter-field {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.filter-field .filter-input {
+  padding-left: 2.1rem;
+  padding-right: 2rem;
+  font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+}
+
+.filter-icon {
+  position: absolute;
+  left: 0.8rem;
+  color: #64748b;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.filter-clear {
+  position: absolute;
+  right: 0.45rem;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+}
+
+.filter-clear:hover {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.traffic-count {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip-toggle.active {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.15);
+  color: #e0f2fe;
+}
+
+/* ---- Body views ---- */
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.segmented button.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: #e0f2fe;
+}
+
+.hex-view {
+  font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  color: #cbd5e1;
+}
+
+/* The selected row already shows where keyboard focus is; keep the list outline subtle. */
+.traffic-panel .table-wrapper:focus {
+  outline: none;
+}
+
+.traffic-panel .table-wrapper:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+/* ---- Browser launcher ---- */
+
+.open-browser-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 28px;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.12);
+  color: #e0f2fe;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.open-browser-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+}
+
+.open-browser-btn .fa-caret-down {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.browser-launcher {
+  margin: 0.25rem 0 1.5rem;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.06);
+}
+
+.browser-launcher p {
+  margin-top: 0;
+}
+
+.browser-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+
+.browser-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.75);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.browser-btn i {
+  font-size: 1.1rem;
+  color: #7dd3fc;
+}
+
+.browser-btn:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(30, 41, 59, 0.95);
+}
+
+.browser-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.launch-message {
+  margin: 0.25rem 0 0.6rem;
+  font-size: 0.88rem;
+}
+
+.launch-message.ok {
+  color: #86efac;
+}
+
+.launch-message.error {
+  color: #fca5a5;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #7dd3fc;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
 }

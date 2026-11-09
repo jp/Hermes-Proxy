@@ -1,5 +1,6 @@
 import type { HeaderMap, ProxyEntry } from './types';
 import {
+  binaryPreview,
   bodyToText,
   decodeBody,
   decodeHarBody,
@@ -68,6 +69,8 @@ export const buildEntryFromHar = (harEntry: any): ProxyEntry => {
     requestDecodedBody: decodedRequest ? bodyToText(decodedRequest) : null,
     responseBody: bodyToText(responseBodyBuffer),
     responseDecodedBody: decodedResponse ? bodyToText(decodedResponse) : null,
+    requestBodyBinaryPreview: binaryPreview(decodedRequest ?? requestBodyBuffer),
+    responseBodyBinaryPreview: binaryPreview(decodedResponse ?? responseBodyBuffer),
     requestBodySize: requestBodyBuffer.length || 0,
     responseBodySize: responseBodyBuffer.length || 0,
     requestEncoding,
@@ -160,6 +163,12 @@ export const buildEntry = ({
     const decoded = decodeBody(responseBody, getHeaderValue(responseHeaders || {}, 'content-encoding'));
     return decoded ? bodyToText(decoded) : null;
   })(),
+  requestBodyBinaryPreview: binaryPreview(
+    decodeBody(requestBody, getHeaderValue(request.headers || {}, 'content-encoding')) ?? requestBody,
+  ),
+  responseBodyBinaryPreview: binaryPreview(
+    decodeBody(responseBody, getHeaderValue(responseHeaders || {}, 'content-encoding')) ?? responseBody,
+  ),
   requestBodySize: requestBody?.length || 0,
   responseBodySize: responseBody?.length || 0,
   requestEncoding: getHeaderValue(request.headers || {}, 'content-encoding') || null,

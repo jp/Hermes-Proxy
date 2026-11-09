@@ -1,7 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { app, dialog, ipcMain, shell } from 'electron';
-import { broadcastClearTraffic, broadcastRulesUpdated } from './broadcast';
+import {
+  broadcastCapturePaused,
+  broadcastClearTraffic,
+  deleteEntries,
+  broadcastRulesUpdated,
+} from './broadcast';
 import { getCaCertificateDetails, pemToDer } from './ca';
 import { exportAllEntriesAsHar, exportEntryAsHar, importHarFromFile } from './har';
 import { restartMitmProxy } from './proxy';
@@ -20,9 +25,12 @@ import {
   setProxySettings,
   clearEntries,
   getRulesFilePath,
+  isCapturePaused,
+  setCapturePaused,
 } from './state';
 import { getDefaultRulesPath, loadRulesFromFile, normalizeRules, persistRules } from './rules';
 import { showTrafficContextMenu } from './menu';
+import { getInstalledBrowsers, launchInstalledBrowser, showBrowserMenu } from './browser-launcher';
 
 export const registerIpcHandlers = () => {
   ipcMain.handle('proxy:get-port', () => getProxyPort());
@@ -158,6 +166,18 @@ export const registerIpcHandlers = () => {
     broadcastClearTraffic();
     return true;
   });
+  ipcMain.handle('proxy:delete-entries', (_event, entryIds) => deleteEntries(entryIds));
+  ipcMain.handle('proxy:get-capture-paused', () => isCapturePaused());
+  ipcMain.handle('proxy:set-capture-paused', (_event, paused) => {
+    setCapturePaused(Boolean(paused));
+    broadcastCapturePaused(isCapturePaused());
+    return isCapturePaused();
+  });
+  ipcMain.handle('proxy:get-browsers', (_event, refresh) =>
+    getInstalledBrowsers(Boolean(refresh)).map(({ id, name, family }) => ({ id, name, family })),
+  );
+  ipcMain.handle('proxy:launch-browser', (_event, browserId) => launchInstalledBrowser(String(browserId || '')));
+  ipcMain.handle('proxy:browser-menu', (event) => showBrowserMenu(event));
   ipcMain.handle('proxy:open-ca-folder', () => {
     const caCertPath = getCaCertPath();
     if (caCertPath) {

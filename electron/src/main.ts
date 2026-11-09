@@ -5,6 +5,7 @@ import { getDefaultRulesPath, loadRulesFromFile } from './main/rules';
 import { loadProxySettings } from './main/settings';
 import { setRules, setProxySettings } from './main/state';
 import { startMitmProxy, stopMitmProxy } from './main/proxy';
+import { closeLaunchedBrowsers } from './main/browser-launcher';
 
 registerIpcHandlers();
 
@@ -44,5 +45,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  closeLaunchedBrowsers();
   void stopMitmProxy();
 });

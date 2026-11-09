@@ -1,4 +1,5 @@
 import { BrowserWindow, Menu, clipboard } from 'electron';
+import { deleteEntries } from './broadcast';
 import { buildCurlCommand, buildFetchCommand, buildPowerShellCommand } from './commands';
 import { buildEntryUrl } from './entries';
 import { exportEntryAsHar, exportSelectedEntriesAsHar } from './har';
@@ -13,8 +14,23 @@ export const showTrafficContextMenu = (
   if (uniqueIds.length > 1) {
     const menu = Menu.buildFromTemplate([
       {
-        label: 'export selected as HAR',
+        label: `Copy ${uniqueIds.length} URLs`,
+        click: () => {
+          const urls = uniqueIds
+            .map((id) => getEntryById(id))
+            .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+            .map((candidate) => buildEntryUrl(candidate));
+          clipboard.writeText(urls.join('\n'));
+        },
+      },
+      {
+        label: 'Export Selected as HAR',
         click: () => exportSelectedEntriesAsHar(uniqueIds),
+      },
+      { type: 'separator' },
+      {
+        label: `Delete ${uniqueIds.length} Requests`,
+        click: () => deleteEntries(uniqueIds),
       },
     ]);
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });
@@ -90,6 +106,12 @@ export const showTrafficContextMenu = (
       label: 'Export Exchange as HAR',
       click: () => exportEntryAsHar(entryId),
       enabled: isHttpEntry,
+    },
+    { type: 'separator' },
+    {
+      label: 'Delete',
+      enabled: Boolean(entry),
+      click: () => deleteEntries([entryId]),
     },
   ]);
   menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });

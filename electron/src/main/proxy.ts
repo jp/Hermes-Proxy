@@ -4,6 +4,8 @@ import { getLocal } from 'mockttp';
 import { buildEntry } from './entries';
 import { ensureHermesCa } from './ca';
 import { broadcastCaReady, broadcastEndpointReady, broadcastEntry, broadcastPortReady } from './broadcast';
+import { HERMES_HOSTNAME } from './browsers';
+import { buildLandingResponse, isHermesHost } from './landing';
 import { PROXY_PORT_START } from './constants';
 import { applyHeaderOverrides } from './headers';
 import { getLocalNetworkIp } from './network';
@@ -11,6 +13,7 @@ import { buildRuleShortCircuitResponse, matchRule } from './rules';
 import type { ProxyEntry, WebSocketFrame } from './types';
 import {
   getProxyInstance,
+  getProxyPort,
   getProxySettings,
   getRules,
   setCaCertPath,
@@ -266,6 +269,23 @@ export const startMitmProxy = async () => {
   >();
   const webSocketEntries = new Map<string, ProxyEntry>();
 
+  // http(s)://hermes.proxy/ is answered by Hermes itself (landing page for launched browsers).
+  // Registered first so it wins over the pass-through rule below.
+  await proxy
+    .forAnyRequest()
+    .forHostname(HERMES_HOSTNAME)
+    // Without always(), mockttp only uses a rule once when a later rule also matches.
+    .always()
+    .thenCallback((req: any) => {
+      let pathname = '/';
+      try {
+        pathname = new URL(req.url).pathname;
+      } catch {
+        // Keep the default.
+      }
+      return buildLandingResponse(pathname, { proxyPort: getProxyPort(), caCertPath: certPath });
+    });
+
   await proxy.forAnyRequest().thenPassThrough({
     beforeRequest: async (req: any) => {
       const requestHeaders = normalizeHeaders(req.headers);
@@ -482,6 +502,7 @@ export const startMitmProxy = async () => {
       const urlValue = toAbsoluteRequestUrl(request, requestHeaders);
       if (!urlValue) return;
       const target = new URL(urlValue);
+      if (isHermesHost(target.hostname)) return;
       const durationMs =
         typeof responseEndAt === 'number' && typeof requestStartAt === 'number'
           ? Math.max(0, responseEndAt - requestStartAt)

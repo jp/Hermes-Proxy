@@ -66,7 +66,7 @@ export const importHarFromFile = (filePath: string) => {
   harEntries.forEach((harEntry: any) => {
     try {
       const entry = buildEntryFromHar(harEntry);
-      broadcastEntry(entry);
+      broadcastEntry(entry, { force: true });
     } catch (err) {
       console.error('Failed to import HAR entry', err);
     }

@@ -30,6 +30,9 @@ export interface ProxyEntry {
   responseBody?: string;
   requestDecodedBody?: string;
   responseDecodedBody?: string;
+  /** Base64 of the first bytes of a binary body (decoded when possible), for the hex view. */
+  requestBodyBinaryPreview?: string | null;
+  responseBodyBinaryPreview?: string | null;
   requestBodySize?: number;
   responseBodySize?: number;
   requestDecodedSize?: number;
@@ -160,4 +163,10 @@ export interface CaCertificateDetails {
   subjectKeyIdentifier: string;
   authorityKeyIdentifier: string;
   extensions: CertificateExtensionSummary[];
+}
+
+export interface InstalledBrowser {
+  id: string;
+  name: string;
+  family: 'chromium' | 'firefox';
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-markup';
@@ -23,9 +23,17 @@ import {
   summarizeCacheability,
 } from './utils/http';
 import { createRule } from './utils/rules';
+import { isStaticAsset, matchesFilter, parseFilter } from './utils/filter';
+import { nextSort, sortEntries, type ColumnKey, type SortState } from './utils/columns';
+import { loadPreference, savePreference } from './utils/storage';
 import type { CaCertificateDetails, PerformanceData, ProxyEntry, ProxySettings, RequestHeaderDraft, Rule } from './types';
 
-const MAX_ENTRIES = 20000;
+// Keep in sync with HISTORY_LIMIT in electron/src/main/constants.ts.
+const MAX_ENTRIES = 5000;
+
+const isSplitPercent = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 25 && value <= 75;
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 
 function App() {
   const [entries, setEntries] = useState<ProxyEntry[]>([]);
@@ -43,6 +51,11 @@ function App() {
   );
   const [responseView, setResponseView] = useState<'headers' | 'body' | 'raw' | 'summary' | 'messages'>('headers');
   const [filterText, setFilterText] = useState('');
+  const deferredFilterText = useDeferredValue(filterText);
+  const [hideStatic, setHideStatic] = useState(() => loadPreference('hideStatic', false, isBoolean));
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [capturePaused, setCapturePaused] = useState(false);
+  const [revealRequest, setRevealRequest] = useState<{ id: string; nonce: number } | null>(null);
   const [prettyPrintResponse, setPrettyPrintResponse] = useState(true);
   const [requestUrlDraft, setRequestUrlDraft] = useState('');
   const [requestHeadersDraft, setRequestHeadersDraft] = useState<RequestHeaderDraft[]>([]);
@@ -52,45 +65,12 @@ function App() {
   const [listenOnAllInterfaces, setListenOnAllInterfaces] = useState(true);
   const [maxCaptureBodySizeMb, setMaxCaptureBodySizeMb] = useState(5);
   const [settingsBusy, setSettingsBusy] = useState(false);
-  const [splitPercent, setSplitPercent] = useState(55);
+  const [splitPercent, setSplitPercent] = useState(() => loadPreference('splitPercent', 55, isSplitPercent));
   const [isResizing, setIsResizing] = useState(false);
   const tableRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number; containerWidth: number } | null>(null);
   const rulesReadyRef = useRef(false);
-  const scrollTrafficEntryIntoView = useCallback((entryId: string) => {
-    const maxAttempts = 6;
-    const tryScroll = (attempt: number) => {
-      const container = tableRef.current;
-      if (!container) {
-        if (attempt < maxAttempts) {
-          window.requestAnimationFrame(() => tryScroll(attempt + 1));
-        }
-        return;
-      }
-
-      const row = Array.from(container.querySelectorAll<HTMLTableRowElement>('tbody tr[data-entry-id]')).find(
-        (candidate) => candidate.dataset.entryId === entryId
-      );
-      if (!row) {
-        if (attempt < maxAttempts) {
-          window.requestAnimationFrame(() => tryScroll(attempt + 1));
-        }
-        return;
-      }
-
-      const rowTop = row.offsetTop;
-      const rowBottom = rowTop + row.offsetHeight;
-      const viewTop = container.scrollTop;
-      const viewBottom = viewTop + container.clientHeight;
-      if (rowTop >= viewTop && rowBottom <= viewBottom) return;
-
-      const centeredTop = Math.max(0, rowTop - (container.clientHeight - row.offsetHeight) / 2);
-      container.scrollTo({ top: centeredTop, behavior: 'smooth' });
-    };
-
-    tryScroll(0);
-  }, []);
   const handleInspectEntry = useCallback((entryId: string) => {
     if (!entryId) return;
     setActiveTab('intercept');
@@ -99,8 +79,8 @@ function App() {
     lastSelectedIdRef.current = entryId;
     setRequestCollapsed(false);
     setResponseCollapsed(false);
-    scrollTrafficEntryIntoView(entryId);
-  }, [scrollTrafficEntryIntoView]);
+    setRevealRequest((prev) => ({ id: entryId, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   useEffect(() => {
     let cleanup;
@@ -108,6 +88,8 @@ function App() {
     let offClearTraffic;
     let offAddRule;
     let offRulesUpdated;
+    let offEntriesRemoved: (() => void) | undefined;
+    let offCapturePaused: (() => void) | undefined;
 
     if (api?.getHistory) {
       api.getHistory().then((history) => {
@@ -130,7 +112,7 @@ function App() {
             existingIndex === -1
               ? [...prev, entry]
               : prev.map((candidate, index) => (index === existingIndex ? entry : candidate));
-          if (existingIndex === -1) {
+          if (existingIndex === -1 && prev.length === 0) {
             setSelectedId((current) => current ?? entry.id);
             setSelectedIds((current) => (current.length ? current : [entry.id]));
             if (!lastSelectedIdRef.current) {
@@ -140,6 +122,33 @@ function App() {
           return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
         });
       });
+    }
+
+    if (api?.onEntriesRemoved) {
+      offEntriesRemoved = api.onEntriesRemoved((removedIds) => {
+        const removed = new Set(removedIds || []);
+        if (removed.size === 0) return;
+        // Move the selection to the nearest surviving row instead of dropping it.
+        const currentId = selectedIdRef.current;
+        if (currentId && removed.has(currentId)) {
+          const ordered = displayedIdsRef.current;
+          const index = ordered.indexOf(currentId);
+          const after = ordered.slice(index + 1).find((id) => !removed.has(id));
+          const before = ordered.slice(0, Math.max(0, index)).reverse().find((id) => !removed.has(id));
+          const nextId = index === -1 ? null : after ?? before ?? null;
+          setSelectedIds(nextId ? [nextId] : []);
+          setSelectedId(nextId);
+          lastSelectedIdRef.current = nextId;
+        }
+        setEntries((prev) => prev.filter((entry) => !removed.has(entry.id)));
+      });
+    }
+
+    if (api?.getCapturePaused) {
+      api.getCapturePaused().then((paused) => setCapturePaused(Boolean(paused)));
+    }
+    if (api?.onCapturePaused) {
+      offCapturePaused = api.onCapturePaused((paused) => setCapturePaused(Boolean(paused)));
     }
 
     if (api?.onClearTraffic) {
@@ -193,8 +202,10 @@ function App() {
       offClearTraffic?.();
       offAddRule?.();
       offRulesUpdated?.();
+      offEntriesRemoved?.();
+      offCapturePaused?.();
     };
-  }, [handleInspectEntry]);
+  }, []);
 
   useEffect(() => {
     if (!rulesReadyRef.current) return;
@@ -202,11 +213,20 @@ function App() {
   }, [rules]);
 
   useLayoutEffect(() => {
-    if (!autoScroll || activeTab !== 'intercept') return;
+    // Following the newest request only makes sense in arrival order.
+    if (!autoScroll || sort || activeTab !== 'intercept') return;
     const el = tableRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [entries, autoScroll, activeTab]);
+  }, [entries, autoScroll, sort, activeTab]);
+
+  useEffect(() => {
+    savePreference('splitPercent', splitPercent);
+  }, [splitPercent]);
+
+  useEffect(() => {
+    savePreference('hideStatic', hideStatic);
+  }, [hideStatic]);
 
   const handleTableScroll = () => {
     const el = tableRef.current;
@@ -326,15 +346,6 @@ function App() {
   }, [selectedIds]);
 
   useEffect(() => {
-    if (selectedIds.length > 0 || entries.length === 0) return;
-    const firstId = entries[0]?.id;
-    if (!firstId) return;
-    setSelectedIds([firstId]);
-    setSelectedId(firstId);
-    lastSelectedIdRef.current = firstId;
-  }, [entries, selectedIds]);
-
-  useEffect(() => {
     if (!isResizing) return;
     const onMove = (event: MouseEvent) => {
       const state = resizeRef.current;
@@ -388,11 +399,48 @@ function App() {
   };
 
   const handleClearTraffic = async () => {
+    if (entries.length > 0) {
+      const count = entries.length;
+      const confirmed = window.confirm(`Clear all ${count} captured request${count === 1 ? '' : 's'}? This cannot be undone.`);
+      if (!confirmed) return;
+    }
     await window.electronAPI?.clearTraffic?.();
     setSelectedId(null);
     setSelectedIds([]);
     lastSelectedIdRef.current = null;
   };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) return;
+    window.electronAPI?.deleteEntries?.(selectedIds);
+  };
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds([]);
+    setSelectedId(null);
+    lastSelectedIdRef.current = null;
+  }, []);
+
+  const handleToggleCapturePaused = async () => {
+    const api = window.electronAPI;
+    const next = !capturePaused;
+    setCapturePaused(next);
+    if (api?.setCapturePaused) {
+      try {
+        setCapturePaused(Boolean(await api.setCapturePaused(next)));
+      } catch {
+        setCapturePaused(!next);
+      }
+    }
+  };
+
+  const handleJumpToLatest = () => {
+    const el = tableRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setAutoScroll(true);
+  };
+
+  const handleSortChange = (key: ColumnKey) => setSort((current) => nextSort(current, key));
 
   const handleSaveRules = async () => {
     await window.electronAPI?.saveRules?.();
@@ -531,7 +579,8 @@ function App() {
     document
       .querySelectorAll('.header-value-input')
       .forEach((el) => resizeTextarea(el as HTMLTextAreaElement));
-  }, [requestHeadersDraft]);
+    // Also re-run when the header editor is (re)mounted by switching tabs or expanding the panel.
+  }, [requestHeadersDraft, requestView, requestCollapsed, activeTab]);
 
   useEffect(() => {
     if (!selected) {
@@ -548,33 +597,18 @@ function App() {
     );
   }, [selected]);
 
+  const filterTerms = useMemo(() => parseFilter(deferredFilterText), [deferredFilterText]);
   const filteredEntries = useMemo(() => {
-    if (!filterText.trim()) return entries;
-    const q = filterText.toLowerCase();
-    return entries.filter((e) => {
-      const webSocketPayload = (e.webSocketMessages || [])
-        .map((message) => message.content)
-        .join(' ');
-      const haystack = [
-        e.kind,
-        e.method,
-        e.host,
-        e.path,
-        e.query,
-        String(e.status ?? ''),
-        e.webSocketState,
-        String(e.webSocketCloseCode ?? ''),
-        e.webSocketCloseReason,
-        webSocketPayload,
-        headersToText(e.requestHeaders),
-        headersToText(e.responseHeaders),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [entries, filterText]);
+    const visible =
+      filterTerms.length === 0 && !hideStatic
+        ? entries
+        : entries.filter((entry) => (!hideStatic || !isStaticAsset(entry)) && matchesFilter(entry, filterTerms));
+    return sortEntries(visible, sort);
+  }, [entries, filterTerms, hideStatic, sort]);
+  const displayedIdsRef = useRef<string[]>([]);
+  displayedIdsRef.current = useMemo(() => filteredEntries.map((entry) => entry.id), [filteredEntries]);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
   const requestLine = useMemo(() => {
     if (!selected) return '';
     const version = selected.kind === 'websocket' ? 'WS' : selected.requestHttpVersion || 'HTTP/1.1';
@@ -845,6 +879,18 @@ function App() {
           selectedIds={selectedIds}
           onSelectEntry={handleSelectEntry}
           onSelectAll={handleSelectAll}
+          onClearSelection={handleClearSelection}
+          onDeleteSelected={handleDeleteSelected}
+          revealRequest={revealRequest}
+          capturePaused={capturePaused}
+          onToggleCapturePaused={handleToggleCapturePaused}
+          onOpenBrowserMenu={() => window.electronAPI?.showBrowserMenu?.()}
+          autoScroll={autoScroll}
+          onJumpToLatest={handleJumpToLatest}
+          sort={sort}
+          onSortChange={handleSortChange}
+          hideStatic={hideStatic}
+          onHideStaticChange={setHideStatic}
           onShowContextMenu={(entryIds) => window.electronAPI?.showTrafficContextMenu?.(entryIds)}
           onInspectEntry={handleInspectEntry}
           proxyHost={proxyHost}

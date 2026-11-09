@@ -1,5 +1,17 @@
 import React from 'react';
 import { headersToList, statusTone } from '../../utils/http';
+import { formatBytes, formatDuration, hexDump } from '../../utils/format';
+import {
+  COLUMN_LABELS,
+  COLUMN_ORDER,
+  DEFAULT_VISIBLE_COLUMNS,
+  getEntrySize,
+  getEntryStartMs,
+  getEntryShortType,
+  type ColumnKey,
+  type SortState,
+} from '../../utils/columns';
+import { loadPreference, savePreference } from '../../utils/storage';
 import type { ProxyEntry, RequestHeaderDraft, WebSocketFrame } from '../../types';
 
 type InterceptViewProps = {
@@ -13,10 +25,22 @@ type InterceptViewProps = {
     orderedIds: string[],
   ) => void;
   onSelectAll: (ids: string[]) => void;
+  onClearSelection: () => void;
+  onDeleteSelected: () => void;
   onShowContextMenu: (entryIds: string[]) => void;
   onInspectEntry: (entryId: string) => void;
+  revealRequest: { id: string; nonce: number } | null;
   proxyHost: string;
   proxyPort: number;
+  capturePaused: boolean;
+  onToggleCapturePaused: () => void;
+  onOpenBrowserMenu: () => void;
+  autoScroll: boolean;
+  onJumpToLatest: () => void;
+  sort: SortState | null;
+  onSortChange: (key: ColumnKey) => void;
+  hideStatic: boolean;
+  onHideStaticChange: (value: boolean) => void;
   isResizing: boolean;
   splitPercent: number;
   splitRef: React.RefObject<HTMLDivElement>;
@@ -63,6 +87,121 @@ type InterceptViewProps = {
   onOpenRequestEditor: () => void;
 };
 
+// Above this many rows, only the rows in (or near) the viewport are rendered.
+const VIRTUALIZE_THRESHOLD = 150;
+const OVERSCAN_ROWS = 12;
+const DEFAULT_ROW_HEIGHT = 33;
+
+const FILTER_HELP = [
+  'Filter syntax (all terms must match):',
+  '  text            search URL, headers, status, WebSocket payloads',
+  '  method:POST     HTTP method (WS for WebSockets)',
+  '  status:4xx      also 404, >=400, <300',
+  '  host:*.api.com  host, * as wildcard',
+  '  path:/v1/       path and query',
+  '  type:json       response content type',
+  '  -term           exclude, e.g. -host:gstatic.com',
+].join('\n');
+
+const isVisibleColumns = (value: unknown): value is Record<ColumnKey, boolean> =>
+  Boolean(value) &&
+  typeof value === 'object' &&
+  COLUMN_ORDER.some((key) => (value as Record<string, unknown>)[key] === true);
+
+const formatTime = (timestamp: ProxyEntry['timestamp']) =>
+  timestamp
+    ? new Date(timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3,
+        hour12: false,
+      })
+    : '—';
+
+const TrafficRow = React.memo(function TrafficRow({
+  entry,
+  isSelected,
+  visibleColumns,
+}: {
+  entry: ProxyEntry;
+  isSelected: boolean;
+  visibleColumns: Record<ColumnKey, boolean>;
+}) {
+  const size = visibleColumns.size ? getEntrySize(entry) : null;
+  const type = visibleColumns.type ? getEntryShortType(entry) : '';
+  return (
+    <tr data-entry-id={entry.id} className={isSelected ? 'selected' : ''} aria-selected={isSelected}>
+      {visibleColumns.time && <td className="col-time">{formatTime(entry.timestamp)}</td>}
+      {visibleColumns.method && (
+        <td>
+          <span
+            className={`pill method method-${(entry.kind === 'websocket' ? 'ws' : entry.method || 'unknown').toLowerCase()}`}
+          >
+            {entry.kind === 'websocket' ? 'WS' : entry.method}
+          </span>
+        </td>
+      )}
+      {visibleColumns.status && (
+        <td>
+          <span className={`pill ${statusTone(entry.status)}`} title={entry.error || undefined}>
+            {entry.status ?? (entry.error ? 'ERR' : '—')}
+          </span>
+        </td>
+      )}
+      {visibleColumns.host && <td title={entry.host}>{entry.host}</td>}
+      {visibleColumns.path && <td title={entry.path}>{entry.path}</td>}
+      {visibleColumns.query && <td title={entry.query || undefined}>{entry.query || '—'}</td>}
+      {visibleColumns.type && <td className="col-muted">{type || '—'}</td>}
+      {visibleColumns.size && <td className="col-num">{size === null ? '—' : formatBytes(size)}</td>}
+      {visibleColumns.duration && (
+        <td className="col-num">{formatDuration(entry.kind === 'websocket' ? null : entry.durationMs)}</td>
+      )}
+    </tr>
+  );
+});
+
+type BodyMode = 'auto' | 'text' | 'hex';
+
+function BodyModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: 'text' | 'hex';
+  onChange: (mode: 'text' | 'hex') => void;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label="Body display mode">
+      {(['text', 'hex'] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={mode === value ? 'active' : ''}
+          aria-pressed={mode === value}
+          onClick={() => onChange(value)}
+        >
+          {value === 'text' ? 'Text' : 'Hex'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HexView({ base64, totalSize }: { base64: string; totalSize?: number | null }) {
+  const dump = React.useMemo(() => hexDump(base64), [base64]);
+  const previewBytes = Math.floor((base64.length * 3) / 4);
+  return (
+    <>
+      {typeof totalSize === 'number' && totalSize > previewBytes && (
+        <div className="detail-sub">{`Showing first ${formatBytes(previewBytes)} of ${formatBytes(totalSize)}`}</div>
+      )}
+      <pre className="plain-pre hex-view" aria-label="Hex dump">
+        {dump}
+      </pre>
+    </>
+  );
+}
+
 function InterceptView({
   entries,
   filteredEntries,
@@ -70,10 +209,22 @@ function InterceptView({
   selectedIds,
   onSelectEntry,
   onSelectAll,
+  onClearSelection,
+  onDeleteSelected,
   onShowContextMenu,
   onInspectEntry,
+  revealRequest,
   proxyHost,
   proxyPort,
+  capturePaused,
+  onToggleCapturePaused,
+  onOpenBrowserMenu,
+  autoScroll,
+  onJumpToLatest,
+  sort,
+  onSortChange,
+  hideStatic,
+  onHideStaticChange,
   isResizing,
   splitPercent,
   splitRef,
@@ -119,24 +270,10 @@ function InterceptView({
   onRepeatRequest,
   onOpenRequestEditor,
 }: InterceptViewProps) {
-  type ColumnKey = 'time' | 'method' | 'status' | 'host' | 'path' | 'query';
-  const columnOrder: ColumnKey[] = ['time', 'method', 'status', 'host', 'path', 'query'];
-  const columnLabels: Record<ColumnKey, string> = {
-    time: 'Time',
-    method: 'Method',
-    status: 'Status',
-    host: 'Host',
-    path: 'Path',
-    query: 'Query',
-  };
-  const [visibleColumns, setVisibleColumns] = React.useState<Record<ColumnKey, boolean>>({
-    time: false,
-    method: true,
-    status: true,
-    host: true,
-    path: true,
-    query: true,
-  });
+  const [visibleColumns, setVisibleColumns] = React.useState<Record<ColumnKey, boolean>>(() => ({
+    ...DEFAULT_VISIBLE_COLUMNS,
+    ...loadPreference('visibleColumns', DEFAULT_VISIBLE_COLUMNS, isVisibleColumns),
+  }));
   const [headerMenu, setHeaderMenu] = React.useState<{ open: boolean; x: number; y: number }>({
     open: false,
     x: 0,
@@ -144,6 +281,24 @@ function InterceptView({
   });
   const headerMenuRef = React.useRef<HTMLDivElement>(null);
   const trafficPanelRef = React.useRef<HTMLElement>(null);
+  const filterInputRef = React.useRef<HTMLInputElement>(null);
+  const [viewport, setViewport] = React.useState({ scrollTop: 0, height: 0 });
+  const [rowHeight, setRowHeight] = React.useState(DEFAULT_ROW_HEIGHT);
+  const scrollFrameRef = React.useRef<number | null>(null);
+  const [requestBodyMode, setRequestBodyMode] = React.useState<BodyMode>('auto');
+  const [responseBodyMode, setResponseBodyMode] = React.useState<BodyMode>('auto');
+
+  React.useEffect(() => {
+    savePreference('visibleColumns', visibleColumns);
+  }, [visibleColumns]);
+
+  React.useEffect(() => {
+    setRequestBodyMode('auto');
+    setResponseBodyMode('auto');
+  }, [selected?.id]);
+
+  const selectedIdSet = React.useMemo(() => new Set(selectedIds), [selectedIds]);
+  const orderedIds = React.useMemo(() => filteredEntries.map((entry) => entry.id), [filteredEntries]);
 
   React.useEffect(() => {
     if (!headerMenu.open) return undefined;
@@ -168,21 +323,103 @@ function InterceptView({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'f') {
+        event.preventDefault();
+        filterInputRef.current?.focus();
+        filterInputRef.current?.select();
+        return;
+      }
+      if (key !== 'a') return;
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
       event.preventDefault();
-      onSelectAll(filteredEntries.map((entry) => entry.id));
+      onSelectAll(orderedIds);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredEntries, onSelectAll]);
+  }, [orderedIds, onSelectAll]);
 
-  const visibleColumnCount = columnOrder.reduce(
-    (count, key) => count + (visibleColumns[key] ? 1 : 0),
-    0,
+  // Track the table viewport so we know which rows to render.
+  React.useLayoutEffect(() => {
+    const el = tableRef.current;
+    if (!el) return undefined;
+    const update = () => setViewport({ scrollTop: el.scrollTop, height: el.clientHeight });
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tableRef]);
+
+  React.useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+    },
+    [],
   );
+
+  const handleScroll = () => {
+    onTableScroll();
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const el = tableRef.current;
+      if (el) setViewport({ scrollTop: el.scrollTop, height: el.clientHeight });
+    });
+  };
+
+  // Measure the real row height once rows exist (rows are single-line, so all rows match).
+  React.useLayoutEffect(() => {
+    const row = tableRef.current?.querySelector<HTMLTableRowElement>('tbody tr[data-entry-id]');
+    const measured = row?.offsetHeight ?? 0;
+    if (measured > 0 && Math.abs(measured - rowHeight) > 0.5) setRowHeight(measured);
+  });
+
+  const getHeaderHeight = () => tableRef.current?.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+
+  const virtualize = filteredEntries.length > VIRTUALIZE_THRESHOLD && viewport.height > 0;
+  const headerHeight = virtualize ? getHeaderHeight() : 0;
+  const windowStart = virtualize
+    ? Math.max(0, Math.floor((viewport.scrollTop - headerHeight) / rowHeight) - OVERSCAN_ROWS)
+    : 0;
+  const windowEnd = virtualize
+    ? Math.min(filteredEntries.length, Math.ceil((viewport.scrollTop + viewport.height) / rowHeight) + OVERSCAN_ROWS)
+    : filteredEntries.length;
+  const renderedEntries = virtualize ? filteredEntries.slice(windowStart, windowEnd) : filteredEntries;
+
+  const scrollToIndex = React.useCallback(
+    (index: number, mode: 'nearest' | 'center') => {
+      const el = tableRef.current;
+      if (!el || index < 0) return;
+      const header = getHeaderHeight();
+      const rowTop = header + index * rowHeight;
+      const rowBottom = rowTop + rowHeight;
+      const viewTop = el.scrollTop + header;
+      const viewBottom = el.scrollTop + el.clientHeight;
+      if (rowTop >= viewTop && rowBottom <= viewBottom) return;
+      let nextTop: number;
+      if (mode === 'center') {
+        nextTop = rowTop - (el.clientHeight - rowHeight) / 2;
+      } else {
+        nextTop = rowTop < viewTop ? rowTop - header : rowBottom - el.clientHeight;
+      }
+      el.scrollTo?.({ top: Math.max(0, nextTop), behavior: mode === 'center' ? 'smooth' : 'auto' });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rowHeight, tableRef],
+  );
+
+  React.useEffect(() => {
+    if (!revealRequest) return;
+    window.requestAnimationFrame(() => scrollToIndex(orderedIds.indexOf(revealRequest.id), 'center'));
+    // Only react to new reveal requests.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealRequest]);
+
+  const visibleColumnCount = COLUMN_ORDER.reduce((count, key) => count + (visibleColumns[key] ? 1 : 0), 0);
 
   const handleHeaderContextMenu = (event: React.MouseEvent<HTMLTableRowElement>) => {
     event.preventDefault();
@@ -203,33 +440,82 @@ function InterceptView({
     });
   };
 
-  const scrollRowIntoView = (entryId: string) => {
-    window.requestAnimationFrame(() => {
-      const row = Array.from(tableRef.current?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-entry-id]') || []).find(
-        (candidate) => candidate.dataset.entryId === entryId,
-      );
-      row?.scrollIntoView?.({ block: 'nearest' });
-    });
+  const selectByIndex = (index: number) => {
+    const nextId = orderedIds[index];
+    if (!nextId) return;
+    onSelectEntry(nextId, { ctrl: false, shift: false, meta: false }, orderedIds);
+    scrollToIndex(index, 'nearest');
   };
 
   const handleTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    if (filteredEntries.length === 0) return;
-
-    event.preventDefault();
-    const orderedIds = filteredEntries.map((entry) => entry.id);
+    if (event.key === 'Escape') {
+      onClearSelection();
+      return;
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (selectedIds.length === 0) return;
+      event.preventDefault();
+      onDeleteSelected();
+      return;
+    }
+    if (orderedIds.length === 0) return;
+    const lastIndex = orderedIds.length - 1;
     const currentIndex = selected ? orderedIds.indexOf(selected.id) : -1;
-    const fallbackIndex = event.key === 'ArrowUp' ? filteredEntries.length - 1 : 0;
-    const nextIndex =
-      currentIndex === -1
-        ? fallbackIndex
-        : Math.min(filteredEntries.length - 1, Math.max(0, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)));
-    const nextId = orderedIds[nextIndex];
-    if (!nextId) return;
-
-    onSelectEntry(nextId, { ctrl: false, shift: false, meta: false }, orderedIds);
-    scrollRowIntoView(nextId);
+    const pageSize = Math.max(1, Math.floor((tableRef.current?.clientHeight ?? 0) / rowHeight) - 1);
+    let nextIndex: number;
+    switch (event.key) {
+      case 'ArrowDown':
+        nextIndex = currentIndex === -1 ? 0 : Math.min(lastIndex, currentIndex + 1);
+        break;
+      case 'ArrowUp':
+        nextIndex = currentIndex === -1 ? lastIndex : Math.max(0, currentIndex - 1);
+        break;
+      case 'PageDown':
+        nextIndex = Math.min(lastIndex, Math.max(0, currentIndex) + pageSize);
+        break;
+      case 'PageUp':
+        nextIndex = Math.max(0, (currentIndex === -1 ? lastIndex : currentIndex) - pageSize);
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = lastIndex;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    selectByIndex(nextIndex);
   };
+
+  const getRowEntryId = (event: React.MouseEvent) =>
+    (event.target as HTMLElement).closest<HTMLTableRowElement>('tr[data-entry-id]')?.dataset.entryId ?? null;
+
+  const handleRowClick = (event: React.MouseEvent<HTMLTableSectionElement>) => {
+    const entryId = getRowEntryId(event);
+    if (!entryId) return;
+    onSelectEntry(entryId, { ctrl: event.ctrlKey, shift: event.shiftKey, meta: event.metaKey }, orderedIds);
+  };
+
+  const handleRowContextMenu = (event: React.MouseEvent<HTMLTableSectionElement>) => {
+    const entryId = getRowEntryId(event);
+    if (!entryId) return;
+    event.preventDefault();
+    const isSelected = selectedIdSet.has(entryId);
+    if (!isSelected) {
+      onSelectEntry(entryId, { ctrl: false, shift: false, meta: false }, orderedIds);
+    }
+    onShowContextMenu(isSelected ? selectedIds : [entryId]);
+  };
+
+  const requestBinaryPreview = selected?.requestBodyBinaryPreview || null;
+  const responseBinaryPreview = selected?.responseBodyBinaryPreview || null;
+  const effectiveRequestBodyMode =
+    requestBodyMode === 'auto' ? (requestBinaryPreview ? 'hex' : 'text') : requestBodyMode;
+  const effectiveResponseBodyMode =
+    responseBodyMode === 'auto' ? (responseBinaryPreview ? 'hex' : 'text') : responseBodyMode;
+  const showJumpToLatest = !autoScroll && !sort && filteredEntries.length > 0;
 
   const requestTabs = [
     { id: 'headers', label: 'Header' },
@@ -281,19 +567,10 @@ function InterceptView({
       }
       return false;
     };
-    const toTimestampMs = (entry: ProxyEntry) => {
-      if (typeof entry.requestStartAt === 'number') return entry.requestStartAt;
-      if (typeof entry.timestamp === 'number') return entry.timestamp;
-      if (typeof entry.timestamp === 'string') {
-        const parsed = Date.parse(entry.timestamp);
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-      return null;
-    };
     const rows = entries
       .filter(isRelated)
       .map((entry) => {
-        const startMs = toTimestampMs(entry);
+        const startMs = getEntryStartMs(entry);
         if (startMs === null) return null;
         const sendMs = entry.timingSendMs ?? 0;
         const waitMs = entry.timingWaitMs ?? 0;
@@ -337,97 +614,113 @@ function InterceptView({
         <section className="panel traffic-panel" ref={trafficPanelRef}>
           <div className="header">
             <h1>Traffic</h1>
-            <span className="status-pill">{`Listening on ${proxyHost}:${proxyPort}`}</span>
+            <div className="header-actions">
+              <button
+                type="button"
+                className="open-browser-btn"
+                onClick={onOpenBrowserMenu}
+                title="Open a browser that is already set up to use Hermes, without changing system settings"
+              >
+                <i className="fa-solid fa-globe" aria-hidden="true"></i>
+                Open browser
+                <i className="fa-solid fa-caret-down" aria-hidden="true"></i>
+              </button>
+              <span className={`status-pill ${capturePaused ? 'paused' : ''}`}>
+                {capturePaused ? `Paused · ${proxyHost}:${proxyPort}` : `Listening on ${proxyHost}:${proxyPort}`}
+              </span>
+              <button
+                type="button"
+                className={`icon-btn ${capturePaused ? 'active' : ''}`}
+                onClick={onToggleCapturePaused}
+                aria-label={capturePaused ? 'Resume capture' : 'Pause capture'}
+                title={
+                  capturePaused
+                    ? 'Resume capture'
+                    : 'Pause capture (traffic still flows through the proxy, it just is not recorded)'
+                }
+              >
+                <i className={`fa-solid ${capturePaused ? 'fa-play' : 'fa-pause'}`}></i>
+              </button>
+            </div>
           </div>
           <div
             className="table-wrapper"
             ref={tableRef}
-            onScroll={onTableScroll}
+            onScroll={handleScroll}
             onKeyDown={handleTableKeyDown}
             onMouseDown={(event) => event.currentTarget.focus()}
             tabIndex={0}
             aria-label="Traffic list"
           >
-            <table>
+            <table className="traffic-table">
+              <colgroup>
+                {COLUMN_ORDER.map((key) => (visibleColumns[key] ? <col key={key} className={`col-w-${key}`} /> : null))}
+              </colgroup>
               <thead>
-                <tr onContextMenu={handleHeaderContextMenu}>
-                  {columnOrder.map((key) =>
+                <tr onContextMenu={handleHeaderContextMenu} title="Click to sort · right-click to choose columns">
+                  {COLUMN_ORDER.map((key) =>
                     visibleColumns[key] ? (
-                      <th key={key} className={key === 'time' ? 'col-time' : undefined}>
-                        {columnLabels[key]}
+                      <th
+                        key={key}
+                        className={`sortable ${key === 'time' ? 'col-time' : ''} ${sort?.key === key ? 'sorted' : ''}`}
+                        aria-sort={sort?.key === key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        onClick={() => onSortChange(key)}
+                      >
+                        {COLUMN_LABELS[key]}
+                        {sort?.key === key && (
+                          <i
+                            className={`fa-solid fa-caret-${sort.direction === 'asc' ? 'up' : 'down'} sort-indicator`}
+                            aria-hidden="true"
+                          ></i>
+                        )}
                       </th>
                     ) : null,
                   )}
                 </tr>
               </thead>
-              <tbody>
+              <tbody onClick={handleRowClick} onContextMenu={handleRowContextMenu}>
                 {filteredEntries.length === 0 && (
                   <tr>
                     <td colSpan={visibleColumnCount} className="empty">
-                      {entries.length === 0 ? 'Waiting for traffic…' : 'No matches for this filter.'}
+                      {entries.length === 0
+                        ? capturePaused
+                          ? 'Capture is paused.'
+                          : 'Waiting for traffic…'
+                        : 'No matches for this filter.'}
                     </td>
                   </tr>
                 )}
-                {filteredEntries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    data-entry-id={entry.id}
-                    className={selectedIds.includes(entry.id) ? 'selected' : ''}
-                    onClick={(event) =>
-                      onSelectEntry(
-                        entry.id,
-                        { ctrl: event.ctrlKey, shift: event.shiftKey, meta: event.metaKey },
-                        filteredEntries.map((row) => row.id),
-                      )
-                    }
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      const isSelected = selectedIds.includes(entry.id);
-                      if (!isSelected) {
-                        onSelectEntry(
-                          entry.id,
-                          { ctrl: false, shift: false, meta: false },
-                          filteredEntries.map((row) => row.id),
-                        );
-                      }
-                      onShowContextMenu(isSelected ? selectedIds : [entry.id]);
-                    }}
-                  >
-                    {visibleColumns.time && (
-                      <td className="col-time">
-                        {entry.timestamp
-                          ? new Date(entry.timestamp).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                              fractionalSecondDigits: 3,
-                              hour12: false,
-                            })
-                          : '—'}
-                      </td>
-                    )}
-                    {visibleColumns.method && (
-                      <td>
-                        <span
-                          className={`pill method method-${(entry.kind === 'websocket' ? 'ws' : entry.method || 'unknown').toLowerCase()}`}
-                        >
-                          {entry.kind === 'websocket' ? 'WS' : entry.method}
-                        </span>
-                      </td>
-                    )}
-                    {visibleColumns.status && (
-                      <td>
-                        <span className={`pill ${statusTone(entry.status)}`}>{entry.status ?? '—'}</span>
-                      </td>
-                    )}
-                    {visibleColumns.host && <td>{entry.host}</td>}
-                    {visibleColumns.path && <td>{entry.path}</td>}
-                    {visibleColumns.query && <td>{entry.query || '—'}</td>}
+                {virtualize && windowStart > 0 && (
+                  <tr className="spacer-row" aria-hidden="true" style={{ height: windowStart * rowHeight }}>
+                    <td colSpan={visibleColumnCount} />
                   </tr>
+                )}
+                {renderedEntries.map((entry) => (
+                  <TrafficRow
+                    key={entry.id}
+                    entry={entry}
+                    isSelected={selectedIdSet.has(entry.id)}
+                    visibleColumns={visibleColumns}
+                  />
                 ))}
+                {virtualize && windowEnd < filteredEntries.length && (
+                  <tr
+                    className="spacer-row"
+                    aria-hidden="true"
+                    style={{ height: (filteredEntries.length - windowEnd) * rowHeight }}
+                  >
+                    <td colSpan={visibleColumnCount} />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          {showJumpToLatest && (
+            <button type="button" className="jump-latest" onClick={onJumpToLatest}>
+              <i className="fa-solid fa-arrow-down" aria-hidden="true"></i>
+              Jump to latest
+            </button>
+          )}
           {headerMenu.open && (
             <div
               className="header-context-menu"
@@ -437,14 +730,10 @@ function InterceptView({
               onContextMenu={(event) => event.preventDefault()}
             >
               <div className="menu-title">Columns</div>
-              {columnOrder.map((key) => (
+              {COLUMN_ORDER.map((key) => (
                 <label key={key} className="menu-item">
-                  <input
-                    type="checkbox"
-                    checked={visibleColumns[key]}
-                    onChange={() => toggleColumn(key)}
-                  />
-                  <span>{columnLabels[key]}</span>
+                  <input type="checkbox" checked={visibleColumns[key]} onChange={() => toggleColumn(key)} />
+                  <span>{COLUMN_LABELS[key]}</span>
                 </label>
               ))}
             </div>
@@ -569,7 +858,20 @@ function InterceptView({
                     )}
                     {requestView === 'body' && (
                       <div className="plain-field" aria-label="Request body">
-                        {requestDisplayBody && requestDisplayBody.length > 0 ? (
+                        {requestBinaryPreview && (
+                          <div className="kv-title-row">
+                            <span className="kv-title">BODY</span>
+                            <div className="kv-actions">
+                              <BodyModeToggle mode={effectiveRequestBodyMode} onChange={setRequestBodyMode} />
+                            </div>
+                          </div>
+                        )}
+                        {requestBinaryPreview && effectiveRequestBodyMode === 'hex' ? (
+                          <HexView
+                            base64={requestBinaryPreview}
+                            totalSize={selected.requestDecodedSize ?? selected.requestBodySize}
+                          />
+                        ) : requestDisplayBody && requestDisplayBody.length > 0 ? (
                           <pre className="plain-pre">{requestBodyText}</pre>
                         ) : (
                           <div className="empty">No body</div>
@@ -751,7 +1053,10 @@ function InterceptView({
                         <div className="kv-title-row">
                           <span className="kv-title">BODY</span>
                           <div className="kv-actions">
-                            {isPrettyPrintableResponse && (
+                            {responseBinaryPreview && (
+                              <BodyModeToggle mode={effectiveResponseBodyMode} onChange={setResponseBodyMode} />
+                            )}
+                            {isPrettyPrintableResponse && effectiveResponseBodyMode === 'text' && (
                               <label className="toggle-field">
                                 <input
                                   type="checkbox"
@@ -773,7 +1078,12 @@ function InterceptView({
                             </button>
                           </div>
                         </div>
-                        {responseBodyText ? (
+                        {responseBinaryPreview && effectiveResponseBodyMode === 'hex' ? (
+                          <HexView
+                            base64={responseBinaryPreview}
+                            totalSize={selected.responseDecodedSize ?? selected.responseBodySize}
+                          />
+                        ) : responseBodyText ? (
                           prismLanguage ? (
                             <pre className={`plain-pre code-view prism-code language-${prismLanguage}`}>
                               <code dangerouslySetInnerHTML={{ __html: prismHtml || ' ' }} />
@@ -812,12 +1122,51 @@ function InterceptView({
       </div>
       <div className="bottom-menu">
         <div className="filter-row">
-          <input
-            className="filter-input"
-            value={filterText}
-            onChange={(e) => onFilterTextChange(e.target.value)}
-            placeholder="Filter by method, host, headers, status..."
-          />
+          <div className="filter-field">
+            <i className="fa-solid fa-magnifying-glass filter-icon" aria-hidden="true"></i>
+            <input
+              ref={filterInputRef}
+              className="filter-input"
+              value={filterText}
+              onChange={(e) => onFilterTextChange(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && filterText) {
+                  event.preventDefault();
+                  onFilterTextChange('');
+                }
+              }}
+              placeholder="Filter…  e.g. status:4xx method:POST -host:*.gstatic.com"
+              title={FILTER_HELP}
+              aria-label="Filter traffic"
+              spellCheck={false}
+            />
+            {filterText && (
+              <button
+                type="button"
+                className="filter-clear"
+                onClick={() => onFilterTextChange('')}
+                aria-label="Clear filter"
+                title="Clear filter (Esc)"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            )}
+          </div>
+          <span className="traffic-count" aria-live="polite">
+            {filteredEntries.length === entries.length
+              ? `${entries.length} request${entries.length === 1 ? '' : 's'}`
+              : `${filteredEntries.length} of ${entries.length}`}
+          </span>
+          <button
+            type="button"
+            className={`chip-toggle ${hideStatic ? 'active' : ''}`}
+            onClick={() => onHideStaticChange(!hideStatic)}
+            aria-pressed={hideStatic}
+            title="Hide images, fonts, stylesheets, scripts and media"
+          >
+            <i className="fa-solid fa-image" aria-hidden="true"></i>
+            Hide assets
+          </button>
           <button
             className="icon-btn"
             type="button"
