@@ -152,16 +152,18 @@ export interface DetectionEnv {
 
 /** Expands `~`, `%VAR%` and `$PATH/` placeholders into concrete candidate paths. */
 export const expandCandidatePath = (pattern: string, detection: DetectionEnv): string[] => {
+  // Join with the target platform's separator, not the host's, so detection is deterministic everywhere.
+  const join = detection.platform === 'win32' ? path.win32.join : path.posix.join;
   if (pattern.startsWith('$PATH/')) {
     const binary = pattern.slice('$PATH/'.length);
     const separator = detection.platform === 'win32' ? ';' : ':';
     return (detection.env.PATH || '')
       .split(separator)
       .filter(Boolean)
-      .map((dir) => path.join(dir, binary));
+      .map((dir) => join(dir, binary));
   }
   if (pattern.startsWith('~/')) {
-    return [path.join(detection.homeDir, pattern.slice(2))];
+    return [join(detection.homeDir, pattern.slice(2))];
   }
   const match = /^%([^%]+)%\\(.*)$/.exec(pattern);
   if (match) {
